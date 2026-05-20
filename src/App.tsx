@@ -1,7 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+import type { PDFDocumentProxy } from "pdfjs-dist";
 import {
   Disc3,
   FileText,
@@ -86,6 +86,7 @@ import { AudioNowPlaying, audioMetadataFromInspection } from "./viewers/audio";
 import {
   createPdfLoadingTask,
   defaultDocumentView,
+  PdfViewer,
   type DocumentViewState,
   type PdfLoadingTask,
 } from "./viewers/pdf";
@@ -628,8 +629,6 @@ function App() {
   const activePlaybackPathRef = useRef<string | null>(null);
   const imageDragRef = useRef<ImageDragState | null>(null);
   const documentViewportRef = useRef<HTMLDivElement | null>(null);
-  const documentCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const pdfRenderTaskRef = useRef<RenderTask | null>(null);
   const documentLayoutFrameRef = useRef<number | null>(null);
   const documentPageScrollTargetRef = useRef<"top" | "bottom" | null>(null);
   const documentDragRef = useRef<ImageDragState | null>(null);
@@ -1007,8 +1006,6 @@ function App() {
 
   useEffect(() => {
     if (!isPdfDocument || !sourceUrl) {
-      pdfRenderTaskRef.current?.cancel();
-      pdfRenderTaskRef.current = null;
       setPdfDocument(null);
       setDocumentPageCount(0);
       if (!isWordDocument) {
@@ -1022,8 +1019,6 @@ function App() {
     let loadedDocument: PDFDocumentProxy | null = null;
     let loadingTask: PdfLoadingTask | null = null;
 
-    pdfRenderTaskRef.current?.cancel();
-    pdfRenderTaskRef.current = null;
     setPdfDocument(null);
     setDocumentPageCount(0);
     setDocumentLoading(true);
@@ -1059,8 +1054,6 @@ function App() {
 
     return () => {
       cancelled = true;
-      pdfRenderTaskRef.current?.cancel();
-      pdfRenderTaskRef.current = null;
       void loadingTask?.destroy();
       if (loadedDocument) {
         void loadedDocument.destroy();
@@ -1102,114 +1095,42 @@ function App() {
     };
   }, [isDocument, sourceUrl]);
 
-  useEffect(() => {
-    if (!isPdfDocument || !pdfDocument) {
-      return;
-    }
+  const startPdfPageRender = useCallback(() => {
+    setDocumentLoading(true);
+    setDocumentError(null);
+  }, []);
 
-    const canvas = documentCanvasRef.current;
+  const finishPdfPageRender = useCallback(() => {
     const viewportElement = documentViewportRef.current;
-    if (!canvas || !viewportElement) {
-      return;
+
+    const scrollTarget = documentPageScrollTargetRef.current;
+    if (scrollTarget) {
+      documentPageScrollTargetRef.current = null;
+      scrollDocumentViewportTo(scrollTarget);
     }
 
-    let cancelled = false;
-    const renderPage = async () => {
-      try {
-        const pageNumber = Math.max(
-          1,
-          Math.min(pdfDocument.numPages, documentView.page),
-        );
-        if (pageNumber !== documentView.page) {
-          setDocumentView((current) => ({ ...current, page: pageNumber }));
-          return;
-        }
+    const zoomAnchor = documentZoomAnchorRef.current;
+    if (zoomAnchor && viewportElement && viewportElement.scrollWidth > 0 && viewportElement.scrollHeight > 0) {
+      documentZoomAnchorRef.current = null;
+      const bounds = viewportElement.getBoundingClientRect();
+      viewportElement.scrollLeft =
+        viewportElement.scrollWidth * zoomAnchor.leftRatio - (zoomAnchor.clientX - bounds.left);
+      viewportElement.scrollTop =
+        viewportElement.scrollHeight * zoomAnchor.topRatio - (zoomAnchor.clientY - bounds.top);
+    }
 
-        const page = await pdfDocument.getPage(pageNumber);
-        if (cancelled) {
-          return;
-        }
+    setDocumentLoading(false);
+    setDocumentError(null);
+  }, [scrollDocumentViewportTo]);
 
-        const baseViewport = page.getViewport({ scale: 1 });
-        const bounds = viewportElement.getBoundingClientRect();
-        const availableWidth = Math.max(260, bounds.width - 36);
-        const widthFitScale = availableWidth / baseViewport.width;
-        const manualScale = documentView.zoom / 100;
-        const cssScale = Math.max(
-          0.25,
-          Math.min(
-            4,
-            documentView.fit === "width" ? widthFitScale : manualScale,
-          ),
-        );
-        const pixelRatio = Math.min(window.devicePixelRatio || 1, 2.5);
-        const renderViewport = page.getViewport({ scale: cssScale * pixelRatio });
-        const cssViewport = page.getViewport({ scale: cssScale });
-        const context = canvas.getContext("2d");
-        if (!context) {
-          throw new Error("Canvas rendering is not available.");
-        }
+  const failPdfPageRender = useCallback((message: string) => {
+    setDocumentLoading(false);
+    setDocumentError(message);
+  }, []);
 
-        pdfRenderTaskRef.current?.cancel();
-        canvas.width = Math.ceil(renderViewport.width);
-        canvas.height = Math.ceil(renderViewport.height);
-        canvas.style.width = `${Math.ceil(cssViewport.width)}px`;
-        canvas.style.height = `${Math.ceil(cssViewport.height)}px`;
-        context.setTransform(1, 0, 0, 1, 0, 0);
-        context.clearRect(0, 0, canvas.width, canvas.height);
-
-        const task = page.render({
-          canvas,
-          canvasContext: context,
-          viewport: renderViewport,
-        });
-        pdfRenderTaskRef.current = task;
-        await task.promise;
-
-        if (!cancelled) {
-          const scrollTarget = documentPageScrollTargetRef.current;
-          if (scrollTarget) {
-            documentPageScrollTargetRef.current = null;
-            scrollDocumentViewportTo(scrollTarget);
-          }
-          const zoomAnchor = documentZoomAnchorRef.current;
-          if (zoomAnchor && viewportElement.scrollWidth > 0 && viewportElement.scrollHeight > 0) {
-            documentZoomAnchorRef.current = null;
-            const bounds = viewportElement.getBoundingClientRect();
-            viewportElement.scrollLeft =
-              viewportElement.scrollWidth * zoomAnchor.leftRatio - (zoomAnchor.clientX - bounds.left);
-            viewportElement.scrollTop =
-              viewportElement.scrollHeight * zoomAnchor.topRatio - (zoomAnchor.clientY - bounds.top);
-          }
-          setDocumentLoading(false);
-          setDocumentError(null);
-        }
-      } catch (error) {
-        if (
-          !cancelled &&
-          !(error instanceof Error && error.name === "RenderingCancelledException")
-        ) {
-          setDocumentLoading(false);
-          setDocumentError(compactError(error));
-        }
-      }
-    };
-
-    void renderPage();
-
-    return () => {
-      cancelled = true;
-      pdfRenderTaskRef.current?.cancel();
-    };
-  }, [
-    documentLayoutTick,
-    documentView.fit,
-    documentView.page,
-    documentView.zoom,
-    isPdfDocument,
-    pdfDocument,
-    scrollDocumentViewportTo,
-  ]);
+  const clampPdfDocumentPage = useCallback((page: number) => {
+    setDocumentView((current) => ({ ...current, page }));
+  }, []);
 
   const stopTrackedGstreamer = useCallback(
     async (silent = false) => {
@@ -4304,24 +4225,35 @@ function App() {
           ) : null}
 
           {isDocument && sourceUrl ? (
-            <div
-              className={`document-viewport ${isPdfDocument && isDocumentDragging ? "is-dragging" : ""} ${
-                isWordDocument ? "word-document-viewport" : ""
-              }`}
-              ref={documentViewportRef}
-              onWheel={isPdfDocument ? handleDocumentWheel : undefined}
-              onPointerDown={isPdfDocument ? startDocumentDrag : undefined}
-              onPointerMove={isPdfDocument ? moveDocumentDrag : undefined}
-              onPointerUp={isPdfDocument ? endDocumentDrag : undefined}
-              onPointerCancel={isPdfDocument ? endDocumentDrag : undefined}
-            >
-              {isPdfDocument ? <canvas className="document-surface" ref={documentCanvasRef} aria-label={currentTitle} /> : null}
-              {isWordDocument && wordDocument ? (
-                <WordDocumentSurface document={wordDocument} title={currentTitle} />
-              ) : null}
-              {documentLoading ? <div className="document-status">Loading document...</div> : null}
-              {documentError ? <div className="document-status error">{documentError}</div> : null}
-            </div>
+            isPdfDocument ? (
+              <PdfViewer
+                error={documentError}
+                isDragging={isDocumentDragging}
+                layoutTick={documentLayoutTick}
+                loading={documentLoading}
+                onPageClamped={clampPdfDocumentPage}
+                onPointerCancel={endDocumentDrag}
+                onPointerDown={startDocumentDrag}
+                onPointerMove={moveDocumentDrag}
+                onPointerUp={endDocumentDrag}
+                onRenderError={failPdfPageRender}
+                onRenderStart={startPdfPageRender}
+                onRenderSuccess={finishPdfPageRender}
+                onWheel={handleDocumentWheel}
+                pdf={pdfDocument}
+                title={currentTitle}
+                view={documentView}
+                viewportRef={documentViewportRef}
+              />
+            ) : (
+              <div className="document-viewport word-document-viewport" ref={documentViewportRef}>
+                {isWordDocument && wordDocument ? (
+                  <WordDocumentSurface document={wordDocument} title={currentTitle} />
+                ) : null}
+                {documentLoading ? <div className="document-status">Loading document...</div> : null}
+                {documentError ? <div className="document-status error">{documentError}</div> : null}
+              </div>
+            )
           ) : null}
 
           {isText && sourceUrl ? (
@@ -4589,6 +4521,7 @@ function App() {
             onResetImageView={resetImageView}
             onSeekBy={(seconds) => send("seek", seconds)}
             onSeekTo={seekTo}
+            onSelectDocumentPage={selectDocumentPage}
             onSetDocumentZoom={setDocumentZoom}
             onSetDocumentZoomExact={setDocumentZoomExact}
             onSetPlayerVolume={setPlayerVolume}

@@ -1,5 +1,5 @@
 import { ListVideo } from "lucide-react";
-import { PdfPageThumbnail } from "../../viewers/pdf";
+import { PdfPageList } from "../../viewers/pdf";
 import { ShelfCloseButton, ShelfHeader } from "./ShelfHeader";
 import type { MediaShelvesProps } from "./types";
 
@@ -19,21 +19,12 @@ export function DocumentPagesShelf({
         actions={<ShelfCloseButton label="Close pages" onClose={onClose} />}
       />
 
-      <div className="pdf-page-strip" data-wheel-volume="ignore">
-        {pdfDocument && documentPageCount > 0 ? (
-          Array.from({ length: documentPageCount }, (_, index) => index + 1).map((pageNumber) => (
-            <PdfPageThumbnail
-              key={pageNumber}
-              active={pageNumber === documentView.page}
-              pageNumber={pageNumber}
-              pdf={pdfDocument}
-              onSelect={() => onSelectDocumentPage(pageNumber)}
-            />
-          ))
-        ) : (
-          <p className="empty-state">PDF pages are loading...</p>
-        )}
-      </div>
+      <PdfPageList
+        activePage={documentView.page}
+        pageCount={documentPageCount}
+        pdf={pdfDocument}
+        onSelectPage={onSelectDocumentPage}
+      />
     </div>
   );
 }

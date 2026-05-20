@@ -406,6 +406,17 @@ input[type="range"]:focus-visible {
   pointer-events: none;
 }
 
+.pdf-document-viewport {
+  isolation: isolate;
+}
+
+.pdf-page-canvas {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+  image-rendering: auto;
+}
+
 .document-status {
   position: absolute;
   top: 18px;
@@ -1535,6 +1546,9 @@ input[type="range"]:focus-visible {
   border-radius: 4px;
   background: #fff;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.22);
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
 }
 
 .pdf-page-thumb span {
@@ -1550,6 +1564,12 @@ input[type="range"]:focus-visible {
   color: #09100f;
   border-color: rgba(164, 234, 208, 0.55);
   background: linear-gradient(135deg, #a4ead0, #edc578);
+}
+
+.pdf-page-thumb.failed canvas {
+  background:
+    linear-gradient(135deg, rgba(224, 139, 119, 0.18), rgba(255, 255, 255, 0.82)),
+    #fff;
 }
 
 .library-section {

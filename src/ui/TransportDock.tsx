@@ -38,7 +38,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatClock } from "../lib/playerBrain";
 import type { MediaCapabilities, ShelfCapability } from "../player/capabilities";
 import type { PlayerSettings } from "../player/settings";
-import { documentZoomLabel, type DocumentViewState } from "../viewers/pdf";
+import { PdfToolbar, type DocumentViewState } from "../viewers/pdf";
 import type { ImageViewState } from "../viewers/image";
 
 type TransportMediaMode = "empty" | "video" | "audio" | "image" | "document" | "text";
@@ -79,6 +79,7 @@ type TransportDockProps = {
   onResetImageView: () => void;
   onSeekBy: (seconds: number) => void;
   onSeekTo: (seconds: number) => void;
+  onSelectDocumentPage: (page: number) => void;
   onSetDocumentZoom: (direction: -1 | 1) => void;
   onSetDocumentZoomExact: (zoom: number) => void;
   onSetPlayerVolume: (volume: number) => void;
@@ -146,6 +147,7 @@ export function TransportDock({
   onResetImageView,
   onSeekBy,
   onSeekTo,
+  onSelectDocumentPage,
   onSetDocumentZoom,
   onSetDocumentZoomExact,
   onSetPlayerVolume,
@@ -309,39 +311,23 @@ export function TransportDock({
               {capabilities.documentPages || capabilities.documentPrint ? (
                 <>
                   {capabilities.documentPages ? (
-                    <>
-                      <button
-                        className="icon-button"
-                        onClick={() => onStepDocumentPage(-1)}
-                        disabled={documentView.page <= 1}
-                        title="Previous page"
-                      >
-                        <SkipBack size={19} />
-                      </button>
-                      <button className="icon-button" onClick={() => onSetDocumentZoom(-1)} title="Zoom out">
-                        <ZoomOut size={19} />
-                      </button>
-                      <button className="text-button" onClick={onToggleDocumentFit} title="Fit mode">
-                        <Scan size={16} />
-                        <span>{documentZoomLabel(documentView)}</span>
-                      </button>
-                      <button className="text-button" onClick={() => onSetDocumentZoomExact(100)} title="Actual size">
-                        <span>100%</span>
-                      </button>
-                      <button className="icon-button" onClick={() => onSetDocumentZoom(1)} title="Zoom in">
-                        <ZoomIn size={19} />
-                      </button>
-                      <button
-                        className="icon-button"
-                        onClick={() => onStepDocumentPage(1)}
-                        disabled={documentPageCount > 0 && documentView.page >= documentPageCount}
-                        title="Next page"
-                      >
-                        <SkipForward size={19} />
-                      </button>
-                    </>
+                    <PdfToolbar
+                      documentReady={documentReady}
+                      onFirstPage={() => onSelectDocumentPage(1)}
+                      onLastPage={() => onSelectDocumentPage(Math.max(1, documentPageCount))}
+                      onNextPage={() => onStepDocumentPage(1)}
+                      onPreviousPage={() => onStepDocumentPage(-1)}
+                      onPrint={onPrintCurrentDocument}
+                      onSetActualSize={() => onSetDocumentZoomExact(100)}
+                      onToggleFit={onToggleDocumentFit}
+                      onZoomIn={() => onSetDocumentZoom(1)}
+                      onZoomOut={() => onSetDocumentZoom(-1)}
+                      pageCount={documentPageCount}
+                      view={documentView}
+                      variant="dock"
+                    />
                   ) : null}
-                  {capabilities.documentPrint ? (
+                  {!capabilities.documentPages && capabilities.documentPrint ? (
                     <button className="icon-button" onClick={onPrintCurrentDocument} title="Print document">
                       <Printer size={19} />
                     </button>
@@ -546,58 +532,29 @@ export function TransportDock({
           {capabilities.documentPages || capabilities.documentPrint ? (
             <>
               {capabilities.documentPages ? (
-                <>
-                  <button
-                    className="tool-action playback-tool"
-                    onClick={() => onStepDocumentPage(-1)}
-                    disabled={documentView.page <= 1}
-                    title="Previous page"
-                  >
-                    <SkipBack size={17} />
-                    <span>Page -</span>
-                  </button>
-                  <button className="tool-action playback-tool" onClick={onToggleDocumentFit} title="Toggle document fit">
-                    <Scan size={17} />
-                    <span>{documentZoomLabel(documentView)}</span>
-                  </button>
-                  <button
-                    className="tool-action playback-tool"
-                    onClick={() => onSetDocumentZoomExact(100)}
-                    title="Actual size"
-                  >
-                    <ZoomIn size={17} />
-                    <span>100%</span>
-                  </button>
-                  <button
-                    className="tool-action playback-tool"
-                    onClick={() => onStepDocumentPage(1)}
-                    disabled={documentPageCount > 0 && documentView.page >= documentPageCount}
-                    title="Next page"
-                  >
-                    <SkipForward size={17} />
-                    <span>Page +</span>
-                  </button>
-                  <button
-                    className={`tool-action playback-tool ${shelfMode === "pages" ? "active" : ""}`}
-                    onClick={() => onToggleShelfMode("pages")}
-                    disabled={!documentReady || documentPageCount <= 0}
-                    title="Page overview"
-                  >
-                    <ListVideo size={17} />
-                    <span>Pages</span>
-                  </button>
-                </>
+                <PdfToolbar
+                  documentReady={documentReady}
+                  onFirstPage={() => onSelectDocumentPage(1)}
+                  onLastPage={() => onSelectDocumentPage(Math.max(1, documentPageCount))}
+                  onNextPage={() => onStepDocumentPage(1)}
+                  onPageOverview={() => onToggleShelfMode("pages")}
+                  onPreviousPage={() => onStepDocumentPage(-1)}
+                  onPrint={onPrintCurrentDocument}
+                  onReset={onResetDocumentView}
+                  onSetActualSize={() => onSetDocumentZoomExact(100)}
+                  onToggleFit={onToggleDocumentFit}
+                  onZoomIn={() => onSetDocumentZoom(1)}
+                  onZoomOut={() => onSetDocumentZoom(-1)}
+                  pageCount={documentPageCount}
+                  pagesActive={shelfMode === "pages"}
+                  view={documentView}
+                  variant="tools"
+                />
               ) : null}
-              {capabilities.documentPrint ? (
+              {!capabilities.documentPages && capabilities.documentPrint ? (
                 <button className="tool-action playback-tool" onClick={onPrintCurrentDocument} title="Print document">
                   <Printer size={17} />
                   <span>Print</span>
-                </button>
-              ) : null}
-              {capabilities.documentPages ? (
-                <button className="tool-action playback-tool" onClick={onResetDocumentView} title="Reset document view">
-                  <RefreshCcw size={17} />
-                  <span>Reset</span>
                 </button>
               ) : null}
             </>
