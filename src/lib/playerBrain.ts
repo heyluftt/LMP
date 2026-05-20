@@ -127,6 +127,7 @@ const textExtensions = new Set([
 const textFileNames = new Set([
   ".editorconfig",
   ".eslintrc",
+  ".gitattributes",
   ".gitignore",
   ".npmrc",
   ".prettierrc",

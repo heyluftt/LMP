@@ -102,8 +102,7 @@ export function WindowChrome({
         </button>
         <button
           type="button"
-          onPointerDown={(event) => void closeWindow(event)}
-          onPointerUp={(event) => void closeWindow(event)}
+          onPointerDown={(event) => event.stopPropagation()}
           onClick={(event) => void closeWindow(event)}
           title="Close"
           aria-label="Close"

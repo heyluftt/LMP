@@ -82,6 +82,18 @@ const TEXT_FILE_EXTENSIONS: &[&str] = &[
     "cs", "go", "php", "rb", "sh", "ps1", "bat", "cmd", "sql", "lua", "dart", "kt", "kts", "swift",
     "pl", "r", "gradle",
 ];
+const TEXT_FILE_NAMES: &[&str] = &[
+    ".editorconfig",
+    ".eslintrc",
+    ".gitattributes",
+    ".gitignore",
+    ".npmrc",
+    ".prettierrc",
+    "dockerfile",
+    "license",
+    "makefile",
+    "readme",
+];
 
 #[derive(Clone)]
 struct AppState {
@@ -2896,9 +2908,25 @@ fn media_extension(path: &Path) -> String {
 
 fn is_supported_media_path(path: &Path) -> bool {
     let extension = media_extension(path);
-    SUPPORTED_MEDIA_EXTENSIONS
+    if SUPPORTED_MEDIA_EXTENSIONS
         .iter()
         .any(|supported| *supported == extension)
+    {
+        return true;
+    }
+
+    is_known_extensionless_text_file(path)
+}
+
+fn is_known_extensionless_text_file(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let normalized = name.to_lowercase();
+    TEXT_FILE_NAMES
+        .iter()
+        .any(|supported| *supported == normalized)
+        || normalized.starts_with(".env")
 }
 
 fn transmux_cache_dir() -> Result<PathBuf, String> {

@@ -74,7 +74,15 @@ export function PdfPageThumbnail({
 
     const renderThumb = async () => {
       let task: RenderTask | null = null;
-      const page = await pdf.getPage(pageNumber);
+      const page = await pdf.getPage(pageNumber).catch((error: unknown) => {
+        if (!cancelled && !isPdfRenderingCancelled(error)) {
+          setFailed(true);
+        }
+        return null;
+      });
+      if (!page) {
+        return;
+      }
 
       try {
         if (cancelled) {
