@@ -2,8 +2,6 @@
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust.
 
-There is no published GitHub Release yet.
-
 When `v0.1.0-alpha` is available, use the files attached to the GitHub Release. The first alpha will be a Windows x64 build and will be unsigned, so Windows SmartScreen may show a warning during download or installation.
 
 ## What It Does
