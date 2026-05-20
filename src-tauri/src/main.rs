@@ -26,7 +26,38 @@ use word_document::{read_word_document as read_word_document_file, WordDocumentC
 use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
+use windows_sys::Win32::{
+    Foundation::{
+        CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND, INVALID_HANDLE_VALUE,
+    },
+    System::{
+        DataExchange::COPYDATASTRUCT,
+        Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        },
+        Environment::GetCommandLineW,
+        Threading::{CreateMutexW, OpenMutexW, MUTEX_ALL_ACCESS},
+    },
+    UI::WindowsAndMessaging::{FindWindowW, SendMessageW, WM_COPYDATA},
+};
+
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
+#[cfg(windows)]
+const SINGLE_INSTANCE_CLASS_NAME: &str = "com.heyluftt.lmp-sic";
+#[cfg(windows)]
+const SINGLE_INSTANCE_WINDOW_NAME: &str = "com.heyluftt.lmp-siw";
+#[cfg(windows)]
+const SINGLE_INSTANCE_MUTEX_NAME: &str = "com.heyluftt.lmp-sim";
+#[cfg(windows)]
+const STARTUP_GUARD_MUTEX_NAME: &str = "com.heyluftt.lmp-startup-guard";
+#[cfg(windows)]
+const WMCOPYDATA_SINGLE_INSTANCE_DATA: usize = 1542;
+#[cfg(windows)]
+const SECONDARY_FORWARD_WAIT_ATTEMPTS: usize = 80;
+#[cfg(windows)]
+const SECONDARY_FORWARD_WAIT_MS: u64 = 50;
 
 const SUPPORTED_MEDIA_EXTENSIONS: &[&str] = &[
     "mp4", "m4v", "webm", "mov", "wmv", "mkv", "avi", "ts", "mts", "m2ts", "mpeg", "mpg", "mpe",
@@ -223,7 +254,17 @@ struct MediaOpenRequest {
 fn main() {
     stabilize_installer_launch_environment();
 
-    let startup_files = media_args(env::args().skip(1));
+    let raw_startup_args = env::args().collect::<Vec<_>>();
+    let startup_files = media_args(raw_startup_args.iter().skip(1).cloned());
+    log_instance_event_with_args(
+        "process-start",
+        "candidate",
+        "shouldExit=false",
+        &raw_startup_args,
+        &startup_files,
+    );
+    let _windows_launch_guard =
+        forward_to_existing_instance_or_acquire_startup_guard(&raw_startup_args, &startup_files);
     let reveal_main_immediately = startup_files.is_empty();
     let main_startup_files = startup_files.clone();
     let main_startup_kind = startup_files
@@ -238,15 +279,18 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(
             move |app, args, _cwd| {
-                let files = media_args(args.into_iter());
+                let files = media_args(args.iter().cloned());
+                log_instance_event_with_args(
+                    "single-instance-callback",
+                    "primary",
+                    &format!("cwd=\"{}\" shouldExit=false", compact_log_value(&_cwd)),
+                    &args,
+                    &files,
+                );
                 if !files.is_empty() {
-                    let _ = route_single_instance_files(app, &single_instance_state, files);
-                } else if let Some(window) = app.get_webview_window("main") {
-                    if window.is_minimized().unwrap_or(false) {
-                        let _ = window.unminimize();
-                    }
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    defer_single_instance_files(app, single_instance_state.clone(), files);
+                } else {
+                    defer_single_instance_reveal(app);
                 }
             },
         ))
@@ -254,6 +298,17 @@ fn main() {
         .manage(terminal::TerminalState::default())
         .setup(move |app| {
             if let Some(window) = app.get_webview_window("main") {
+                log_instance_event(
+                    "window-setup",
+                    "primary",
+                    &format!(
+                        "windowLabel={} startupKind={} revealMain={} shouldExit=false",
+                        window.label(),
+                        main_startup_kind,
+                        reveal_main_immediately
+                    ),
+                    &main_startup_files,
+                );
                 restore_window_state(&window);
                 watch_window_state(&window);
                 if main_startup_kind != "unknown" {
@@ -430,6 +485,12 @@ fn close_current_window(
     window: tauri::WebviewWindow,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
+    log_instance_event(
+        "window-close-request",
+        "primary",
+        &format!("windowLabel={} shouldExit=false", window.label()),
+        &[],
+    );
     save_window_state(&window);
     if let Ok(mut kinds) = state.window_media_kinds.lock() {
         kinds.remove(window.label());
@@ -445,6 +506,48 @@ fn close_current_window(
         let _ = window.destroy();
     });
     Ok(())
+}
+
+fn defer_single_instance_files(app: &tauri::AppHandle, state: AppState, files: Vec<String>) {
+    let app_handle = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(25));
+        let scheduler = app_handle.clone();
+        let route_app = app_handle;
+        let _ = scheduler.run_on_main_thread(move || {
+            log_instance_event(
+                "single-instance-dispatch",
+                "primary",
+                "kind=files shouldExit=false",
+                &files,
+            );
+            let _ = route_single_instance_files(&route_app, &state, files);
+        });
+    });
+}
+
+fn defer_single_instance_reveal(app: &tauri::AppHandle) {
+    let app_handle = app.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(25));
+        let scheduler = app_handle.clone();
+        let reveal_app = app_handle;
+        let _ = scheduler.run_on_main_thread(move || {
+            if let Some(window) = reveal_app.get_webview_window("main") {
+                log_instance_event(
+                    "single-instance-dispatch",
+                    "primary",
+                    &format!("kind=reveal windowLabel={} shouldExit=false", window.label()),
+                    &[],
+                );
+                if window.is_minimized().unwrap_or(false) {
+                    let _ = window.unminimize();
+                }
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        });
+    });
 }
 
 fn route_single_instance_files(
@@ -672,6 +775,250 @@ fn append_routing_log(line: &str) {
     }
 }
 
+fn log_instance_event(phase: &str, role: &str, detail: &str, files: &[String]) {
+    let args = env::args().collect::<Vec<_>>();
+    log_instance_event_with_args(phase, role, detail, &args, files);
+}
+
+fn log_instance_event_with_args(
+    phase: &str,
+    role: &str,
+    detail: &str,
+    args: &[String],
+    files: &[String],
+) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    let parent = parent_process_id()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let args = format_log_list(args);
+    let files = format_log_list(files);
+    let command_line = compact_log_value(&process_command_line());
+    append_routing_log(&format!(
+        "{timestamp} phase={phase} pid={pid} ppid={parent} role={role} commandLine=\"{command_line}\" args=\"{args}\" startupFiles=\"{files}\" {detail}\n",
+    ));
+}
+
+fn format_log_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "-".to_string()
+    } else {
+        compact_log_value(&items.join(" || "))
+    }
+}
+
+fn compact_log_value(value: &str) -> String {
+    value
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .replace('"', "'")
+}
+
+#[cfg(windows)]
+struct WindowsLaunchGuard(HANDLE);
+
+#[cfg(windows)]
+impl Drop for WindowsLaunchGuard {
+    fn drop(&mut self) {
+        unsafe {
+            CloseHandle(self.0);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn forward_to_existing_instance_or_acquire_startup_guard(
+    args: &[String],
+    startup_files: &[String],
+) -> Option<WindowsLaunchGuard> {
+    if let Some(hwnd) = find_single_instance_window() {
+        forward_to_single_instance_and_exit(hwnd, args, startup_files, "window-present", 0);
+    }
+
+    if single_instance_mutex_exists() {
+        wait_for_single_instance_window_and_exit(args, startup_files, "plugin-mutex-present");
+    }
+
+    let guard_name = encode_wide(STARTUP_GUARD_MUTEX_NAME);
+    let guard = unsafe { CreateMutexW(std::ptr::null(), true.into(), guard_name.as_ptr()) };
+    if guard.is_null() {
+        log_instance_event_with_args(
+            "startup-guard-unavailable",
+            "primary-candidate",
+            "shouldExit=false",
+            args,
+            startup_files,
+        );
+        return None;
+    }
+
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        wait_for_single_instance_window_and_exit(args, startup_files, "startup-guard-present");
+    }
+
+    log_instance_event_with_args(
+        "startup-guard-acquired",
+        "primary",
+        "shouldExit=false",
+        args,
+        startup_files,
+    );
+    Some(WindowsLaunchGuard(guard))
+}
+
+#[cfg(not(windows))]
+fn forward_to_existing_instance_or_acquire_startup_guard(
+    _args: &[String],
+    _startup_files: &[String],
+) -> Option<()> {
+    None
+}
+
+#[cfg(windows)]
+fn wait_for_single_instance_window_and_exit(
+    args: &[String],
+    startup_files: &[String],
+    reason: &str,
+) -> ! {
+    for attempt in 1..=SECONDARY_FORWARD_WAIT_ATTEMPTS {
+        if let Some(hwnd) = find_single_instance_window() {
+            forward_to_single_instance_and_exit(hwnd, args, startup_files, reason, attempt);
+        }
+        thread::sleep(Duration::from_millis(SECONDARY_FORWARD_WAIT_MS));
+    }
+
+    log_instance_event_with_args(
+        "secondary-exit-no-target",
+        "secondary",
+        &format!("reason={reason} shouldExit=true"),
+        args,
+        startup_files,
+    );
+    std::process::exit(0);
+}
+
+#[cfg(windows)]
+fn forward_to_single_instance_and_exit(
+    hwnd: HWND,
+    args: &[String],
+    startup_files: &[String],
+    reason: &str,
+    attempt: usize,
+) -> ! {
+    let delivered = send_single_instance_args(hwnd, args);
+    log_instance_event_with_args(
+        "secondary-forward-exit",
+        "secondary",
+        &format!("reason={reason} attempt={attempt} delivered={delivered} shouldExit=true"),
+        args,
+        startup_files,
+    );
+    std::process::exit(0);
+}
+
+#[cfg(windows)]
+fn find_single_instance_window() -> Option<HWND> {
+    let class_name = encode_wide(SINGLE_INSTANCE_CLASS_NAME);
+    let window_name = encode_wide(SINGLE_INSTANCE_WINDOW_NAME);
+    let hwnd = unsafe { FindWindowW(class_name.as_ptr(), window_name.as_ptr()) };
+    if hwnd.is_null() {
+        None
+    } else {
+        Some(hwnd)
+    }
+}
+
+#[cfg(windows)]
+fn single_instance_mutex_exists() -> bool {
+    let mutex_name = encode_wide(SINGLE_INSTANCE_MUTEX_NAME);
+    let handle = unsafe { OpenMutexW(MUTEX_ALL_ACCESS, false.into(), mutex_name.as_ptr()) };
+    if handle.is_null() {
+        false
+    } else {
+        unsafe {
+            CloseHandle(handle);
+        }
+        true
+    }
+}
+
+#[cfg(windows)]
+fn send_single_instance_args(hwnd: HWND, args: &[String]) -> bool {
+    let cwd = env::current_dir().unwrap_or_default();
+    let cwd = cwd.to_string_lossy();
+    let data = format!("{cwd}|{}\0", args.join("|"));
+    let bytes = data.as_bytes();
+    let cds = COPYDATASTRUCT {
+        dwData: WMCOPYDATA_SINGLE_INSTANCE_DATA,
+        cbData: bytes.len() as _,
+        lpData: bytes.as_ptr() as _,
+    };
+    unsafe { SendMessageW(hwnd, WM_COPYDATA, 0, &cds as *const _ as _) != 0 }
+}
+
+#[cfg(windows)]
+fn encode_wide(string: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+    std::os::windows::prelude::OsStrExt::encode_wide(string.as_ref())
+        .chain(std::iter::once(0))
+        .collect()
+}
+
+#[cfg(windows)]
+fn parent_process_id() -> Option<u32> {
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return None;
+    }
+
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let current_pid = std::process::id();
+    let mut parent = None;
+
+    let mut has_entry = unsafe { Process32FirstW(snapshot, &mut entry) } != 0;
+    while has_entry {
+        if entry.th32ProcessID == current_pid {
+            parent = Some(entry.th32ParentProcessID);
+            break;
+        }
+        has_entry = unsafe { Process32NextW(snapshot, &mut entry) } != 0;
+    }
+
+    unsafe {
+        CloseHandle(snapshot);
+    }
+    parent
+}
+
+#[cfg(not(windows))]
+fn parent_process_id() -> Option<u32> {
+    None
+}
+
+#[cfg(windows)]
+fn process_command_line() -> String {
+    unsafe {
+        let ptr = GetCommandLineW();
+        if ptr.is_null() {
+            return env::args().collect::<Vec<_>>().join(" ");
+        }
+        let mut len = 0usize;
+        while *ptr.add(len) != 0 {
+            len += 1;
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len))
+    }
+}
+
+#[cfg(not(windows))]
+fn process_command_line() -> String {
+    env::args().collect::<Vec<_>>().join(" ")
+}
+
 #[tauri::command]
 fn open_files_in_window(
     app: tauri::AppHandle,
@@ -702,6 +1049,12 @@ fn open_files_in_new_window(
         *counter
     };
     let label = format!("media-{counter}");
+    log_instance_event(
+        "window-create",
+        "primary",
+        &format!("windowLabel={label} shouldExit=false"),
+        &files,
+    );
 
     {
         let mut pending_windows = state
@@ -1062,8 +1415,20 @@ fn take_startup_files(
             .map_err(|_| "Could not read window startup files.".to_string())?;
         if let Some(files) = pending_windows.remove(&label) {
             record_window_files(state.inner(), &label, &files);
+            log_instance_event(
+                "take-startup-files",
+                "primary",
+                &format!("windowLabel={label} source=window_files shouldExit=false"),
+                &files,
+            );
             return Ok(files);
         }
+        log_instance_event(
+            "take-startup-files",
+            "primary",
+            &format!("windowLabel={label} source=window_files-empty shouldExit=false"),
+            &[],
+        );
         return Ok(Vec::new());
     }
 
@@ -1087,11 +1452,23 @@ fn take_startup_files(
             active_files.insert(label, files.clone());
         }
     }
+    log_instance_event(
+        "take-startup-files",
+        "primary",
+        "windowLabel=main source=pending_files shouldExit=false",
+        &files,
+    );
     Ok(files)
 }
 
 #[tauri::command]
 fn reveal_current_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    log_instance_event(
+        "window-reveal",
+        "primary",
+        &format!("windowLabel={} shouldExit=false", window.label()),
+        &[],
+    );
     if window.is_minimized().unwrap_or(false) {
         window
             .unminimize()
