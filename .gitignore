@@ -1,0 +1,68 @@
+# Dependencies and frontend output
+node_modules/
+dist/
+build/
+
+# Rust/Tauri build output
+target/
+target-*/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/target/release/
+src-tauri/target/release/bundle/
+
+# Local validation artifacts
+*_checks/
+logs/
+cache/
+tmp/
+temp/
+
+# Environment and editor-local files
+.env
+.env.*
+*.local
+*.tmp
+*.bak
+*.log
+*.dmp
+*.pdb
+Thumbs.db
+.DS_Store
+
+# Release/install artifacts belong in GitHub Releases, not source commits
+*.exe
+*.msi
+*.zip
+*.7z
+*.rar
+
+# Large local helper binaries are bundled into release builds locally.
+# Keep the license text, but do not commit the binary tools themselves.
+src-tauri/binaries/tools/*.exe
+!src-tauri/binaries/tools/LICENSE-FFmpeg.txt
+
+# Test media and exported clips
+*.mp4
+*.mkv
+*.mov
+*.avi
+*.mp3
+*.wav
+*.flac
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.pdf
+*.doc
+*.docx
+*_clip_*.mp4
+
+# Do not globally ignore *.ts: this project uses TypeScript source files.
+# MPEG-TS test media is not globally ignored because .ts is also used for TypeScript source files. Keep MPEG-TS test files out of the repository during staging review.
+
+# Keep intentional project resources even though media extensions are ignored.
+!src-tauri/icons/**
+!src-tauri/nsis/**

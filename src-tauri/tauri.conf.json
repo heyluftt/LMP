@@ -1,0 +1,97 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LMP",
+  "mainBinaryName": "lmp",
+  "version": "0.1.0",
+  "identifier": "com.heyluftt.lmp",
+  "build": {
+    "beforeDevCommand": "npm.cmd run dev",
+    "beforeBuildCommand": "npm.cmd run build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LMP",
+        "width": 1200,
+        "height": 760,
+        "minWidth": 430,
+        "minHeight": 310,
+        "resizable": true,
+        "decorations": false,
+        "visible": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      },
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "icon": ["icons/icon.ico"],
+    "publisher": "heyluftt",
+    "copyright": "Copyright (c) 2026 heyluftt",
+    "category": "Video",
+    "resources": ["binaries/tools/*", "icons/filetypes/*"],
+    "shortDescription": "A calm native-first media and viewer suite.",
+    "longDescription": "LMP is a Windows-first media and viewer suite for video, audio, images, PDFs, documents, and text editing. It focuses on a clean desktop UI, Open With routing, keyboard-friendly controls, and native-first playback with optional helper engines.",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "startMenuFolder": "LMP",
+        "compression": "lzma",
+        "installerHooks": "nsis/installer-hooks.nsh"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "fileAssociations": [
+      {
+        "ext": ["mp4", "mkv", "mov", "avi", "webm", "m4v", "wmv", "ts", "mts", "m2ts", "mpeg", "mpg", "mpe", "ogv", "3gp", "3g2", "flv", "f4v", "asf", "vob", "divx", "mxf"],
+        "name": "LMP Video",
+        "description": "Video files",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "aif", "oga", "weba", "caf", "amr", "mka", "mp2", "mpa", "ac3", "eac3", "dts", "dtshd", "ape", "alac", "au", "snd"],
+        "name": "LMP Audio",
+        "description": "Audio files",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "avif", "svg", "ico", "tif", "tiff"],
+        "name": "LMP Images",
+        "description": "Image files",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["pdf"],
+        "name": "LMP PDF",
+        "description": "PDF documents",
+        "role": "Viewer"
+      },
+      {
+        "ext": ["doc", "docx", "docm", "dotx", "dotm"],
+        "name": "LMP Word Documents",
+        "description": "Word documents",
+        "role": "Editor"
+      },
+      {
+        "ext": ["txt", "md", "markdown", "log", "json", "jsonc", "csv", "tsv", "xml", "yaml", "yml", "toml", "ini", "conf", "cfg", "css", "scss", "sass", "less", "html", "htm", "xhtml", "js", "jsx", "tsx", "mjs", "cjs", "vue", "svelte", "astro", "rs", "py", "java", "c", "cpp", "h", "hpp", "cs", "go", "php", "rb", "sh", "ps1", "bat", "cmd", "sql", "lua", "dart", "kt", "kts", "swift", "pl", "r", "gradle"],
+        "name": "LMP Text",
+        "description": "Text files",
+        "role": "Editor"
+      }
+    ]
+  }
+}

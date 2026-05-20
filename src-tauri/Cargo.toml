@@ -1,0 +1,22 @@
+[package]
+name = "lmp-one"
+version = "0.1.0"
+description = "A smooth native-first desktop media player"
+authors = ["heyluftt"]
+edition = "2021"
+
+[[bin]]
+name = "lmp"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+rfd = "0.15"
+quick-xml = "0.39.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+portable-pty = "0.9.0"

@@ -1,0 +1,436 @@
+.media-shelf {
+  width: 100%;
+  min-width: 0;
+}
+
+.shelf-section {
+  overflow: hidden;
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(145deg, rgba(164, 234, 208, 0.032), rgba(237, 197, 120, 0.018) 58%, transparent),
+    rgba(7, 9, 11, 0.82);
+}
+
+.shelf-header {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 8px;
+  min-height: 34px;
+  align-items: center;
+}
+
+.shelf-header > svg {
+  color: rgba(255, 248, 238, 0.9);
+}
+
+.shelf-header strong {
+  min-width: max-content;
+  line-height: 1;
+}
+
+.shelf-meta,
+.shelf-header .engine-path,
+.library-crumb,
+.queue-count {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(247, 242, 235, 0.46);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shelf-actions {
+  justify-self: end;
+  margin-left: 0;
+}
+
+.shelf-actions button {
+  display: inline-grid;
+  min-width: 32px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.045)),
+    rgba(255, 255, 255, 0.03);
+}
+
+.shelf-actions button:hover {
+  border-color: rgba(164, 234, 208, 0.18);
+  background: rgba(164, 234, 208, 0.085);
+}
+
+.shelf-close {
+  width: 32px;
+  padding: 0;
+}
+
+.library-toolbar {
+  grid-template-columns: minmax(190px, 1fr) minmax(0, auto) minmax(104px, auto);
+  align-items: center;
+}
+
+.library-search,
+.library-sort-select,
+.library-filters button {
+  border-color: rgba(255, 255, 255, 0.065);
+  background: rgba(255, 255, 255, 0.052);
+}
+
+.library-filters button {
+  min-width: 46px;
+}
+
+.library-list,
+.recent-list,
+.queue-list {
+  gap: 8px;
+}
+
+.library-list button,
+.recent-list button,
+.queue-list button {
+  min-height: 56px;
+  border-color: rgba(255, 255, 255, 0.055);
+  background:
+    linear-gradient(135deg, rgba(164, 234, 208, 0.025), rgba(237, 197, 120, 0.018)),
+    rgba(255, 255, 255, 0.045);
+}
+
+.library-list button:hover,
+.recent-list button:hover,
+.queue-list button:hover {
+  transform: translateY(-1px);
+}
+
+.library-list button.active,
+.recent-list button.active,
+.queue-list button.active {
+  border-color: rgba(164, 234, 208, 0.38);
+  box-shadow: inset 0 0 0 1px rgba(9, 16, 15, 0.12);
+}
+
+.recent-list button,
+.queue-list button {
+  height: auto;
+}
+
+.trim-section {
+  grid-template-rows: auto minmax(0, auto);
+  max-height: min(360px, calc(100vh - 188px));
+  overflow-y: auto;
+}
+
+.trim-panel {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.35fr) minmax(250px, 0.9fr) minmax(250px, 0.9fr);
+  gap: 10px;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.trim-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(164, 234, 208, 0.035), rgba(237, 197, 120, 0.02)),
+    rgba(255, 255, 255, 0.038);
+}
+
+.trim-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.trim-card-header strong {
+  color: rgba(255, 248, 238, 0.9);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.trim-card-header span {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(164, 234, 208, 0.72);
+  font-size: 11px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.trim-times {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.trim-times > div {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.trim-times span,
+.trim-card p,
+.trim-progress span,
+.trim-output,
+.trim-error {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(247, 242, 235, 0.56);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trim-times strong {
+  display: block;
+  margin-top: 4px;
+  color: #f7f2eb;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.trim-actions,
+.trim-result-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.trim-range-actions {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.trim-actions button,
+.trim-result-actions button,
+.trim-main-action,
+.trim-presets button {
+  display: inline-flex;
+  min-width: 0;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 8px;
+  color: rgba(247, 242, 235, 0.82);
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.trim-actions button span,
+.trim-result-actions button span,
+.trim-main-action span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trim-actions button:hover,
+.trim-result-actions button:hover,
+.trim-main-action:hover,
+.trim-presets button:hover {
+  border-color: rgba(164, 234, 208, 0.2);
+  background: rgba(164, 234, 208, 0.085);
+}
+
+.trim-actions button:disabled,
+.trim-result-actions button:disabled,
+.trim-main-action:disabled,
+.trim-presets button:disabled {
+  cursor: default;
+  opacity: 0.42;
+}
+
+.trim-main-action.primary,
+.trim-presets button.active {
+  color: #09100f;
+  background: linear-gradient(135deg, #a4ead0, #edc578);
+}
+
+.trim-main-action.danger {
+  border-color: rgba(239, 118, 118, 0.28);
+  color: #ffd7d7;
+  background: rgba(239, 118, 118, 0.12);
+}
+
+.trim-main-action {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.trim-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.trim-export-card {
+  min-width: 0;
+}
+
+.trim-result-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.trim-error {
+  color: #ffb39d;
+}
+
+.trim-output {
+  color: rgba(164, 234, 208, 0.88);
+}
+
+.trim-progress {
+  display: grid;
+  gap: 5px;
+}
+
+.trim-progress > div:first-child {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.trim-progress strong {
+  color: #f7f2eb;
+  font-size: 11px;
+}
+
+.trim-progress-track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.trim-progress-track span {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #a4ead0, #edc578);
+}
+
+@media (max-width: 980px) {
+  .trim-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .trim-range-actions,
+  .trim-result-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trim-result-actions button:last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.moment-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  align-content: start;
+  overflow-y: auto;
+}
+
+.moment-row {
+  min-width: 0;
+  flex-basis: auto;
+}
+
+.moment-list .moment-jump {
+  min-width: 0;
+}
+
+.moment-list .moment-delete {
+  width: 42px;
+  min-width: 42px;
+}
+
+.media-info-list {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.media-info-card,
+.track-card {
+  border-color: rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.022), transparent 58%),
+    rgba(255, 255, 255, 0.048);
+}
+
+.media-info-card strong,
+.track-card strong {
+  letter-spacing: 0;
+}
+
+.track-card.active {
+  box-shadow: inset 0 0 0 1px rgba(164, 234, 208, 0.08);
+}
+
+.track-actions button {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pdf-page-strip {
+  padding: 2px 2px 6px;
+}
+
+.pdf-page-thumb {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.028);
+}
+
+.empty-state {
+  display: grid;
+  min-height: 44px;
+  place-items: center;
+  padding: 10px;
+  color: rgba(247, 242, 235, 0.46);
+}
+
+@media (max-width: 760px) {
+  .shelf-header {
+    grid-template-columns: auto minmax(0, auto) minmax(0, 1fr);
+  }
+
+  .shelf-actions {
+    grid-column: 1 / -1;
+    justify-self: start;
+    flex-wrap: wrap;
+  }
+
+  .library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .library-filters {
+    justify-content: flex-start;
+  }
+}

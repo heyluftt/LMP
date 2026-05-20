@@ -1,0 +1,424 @@
+:root {
+  --lmp-panel: rgba(10, 12, 14, 0.78);
+  --lmp-panel-strong: rgba(14, 16, 18, 0.9);
+  --lmp-panel-soft: rgba(255, 255, 255, 0.055);
+  --lmp-border: rgba(255, 255, 255, 0.09);
+  --lmp-border-strong: rgba(164, 234, 208, 0.24);
+  --lmp-text: #fff8ee;
+  --lmp-muted: rgba(247, 242, 235, 0.54);
+  --lmp-faint: rgba(247, 242, 235, 0.36);
+  --lmp-accent: #a4ead0;
+  --lmp-warm: #edc578;
+  --lmp-radius: 8px;
+  --lmp-control: 38px;
+  --lmp-shadow: 0 18px 54px rgba(0, 0, 0, 0.46);
+}
+
+.app-shell {
+  background:
+    linear-gradient(145deg, rgba(164, 234, 208, 0.17), transparent 31%),
+    linear-gradient(325deg, rgba(224, 139, 119, 0.13), transparent 34%),
+    linear-gradient(180deg, #111719 0%, #07090b 54%, #040506 100%);
+}
+
+.window-titlebar {
+  min-height: 32px;
+  background: rgba(2, 3, 5, 0.94);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.045);
+}
+
+.window-title {
+  color: rgba(255, 248, 238, 0.9);
+}
+
+.window-title-mark,
+.brand-mark,
+.media-orb {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+.player-view {
+  border-color: rgba(255, 255, 255, 0.075);
+  background: rgba(4, 6, 8, 0.74);
+}
+
+.stage {
+  background:
+    radial-gradient(circle at 50% 10%, rgba(164, 234, 208, 0.08), transparent 33%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 38%),
+    #050608;
+}
+
+.stage.has-media {
+  background: #020304;
+}
+
+.now-playing {
+  align-self: center;
+  justify-self: center;
+  width: min(680px, calc(100% - 44px));
+}
+
+.now-playing h1 {
+  max-width: 100%;
+  text-wrap: balance;
+}
+
+.now-playing.audio-panel {
+  transform: translateY(-8px);
+}
+
+.now-playing.audio-panel h1 {
+  font-size: clamp(30px, 5.2vw, 54px);
+}
+
+.transport-dock {
+  left: clamp(8px, 1.25vw, 16px);
+  right: clamp(8px, 1.25vw, 16px);
+  bottom: clamp(8px, 1.25vw, 16px);
+  gap: 10px;
+  padding: 10px;
+  border-color: rgba(255, 255, 255, 0.105);
+  background:
+    linear-gradient(135deg, rgba(164, 234, 208, 0.035), rgba(237, 197, 120, 0.025)),
+    rgba(8, 10, 12, 0.76);
+  box-shadow: var(--lmp-shadow);
+}
+
+.transport-dock.viewer-dock {
+  gap: 8px;
+}
+
+.scrub-row {
+  grid-template-columns: minmax(42px, auto) minmax(0, 1fr) minmax(42px, auto);
+  gap: 10px;
+}
+
+.control-row {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.control-meta {
+  align-self: center;
+  max-width: min(360px, 100%);
+}
+
+.control-meta strong {
+  font-size: 12.5px;
+  letter-spacing: 0;
+}
+
+.control-cluster {
+  justify-self: center;
+}
+
+.control-cluster.secondary {
+  justify-self: end;
+  justify-content: flex-end;
+}
+
+.icon-button,
+.play-button,
+.text-button,
+.volume-inline,
+.soft-button,
+.shelf-actions button,
+.tool-popover button,
+.settings-tabs button,
+.library-filters button,
+.library-sort-select,
+.settings-field,
+.track-card,
+.media-info-card,
+.recent-list button,
+.queue-list button,
+.library-list button,
+.moment-list .moment-jump,
+.moment-list .moment-delete {
+  border-radius: var(--lmp-radius);
+}
+
+.icon-button,
+.text-button,
+.volume-inline {
+  border-color: rgba(255, 255, 255, 0.085);
+  background: rgba(255, 255, 255, 0.068);
+}
+
+.icon-button:hover,
+.text-button:hover,
+.volume-inline:hover {
+  border-color: rgba(164, 234, 208, 0.16);
+}
+
+.play-button {
+  box-shadow: 0 10px 26px rgba(164, 234, 208, 0.1);
+}
+
+.tool-popover {
+  gap: 7px;
+  border-color: rgba(255, 255, 255, 0.11);
+  background:
+    linear-gradient(145deg, rgba(164, 234, 208, 0.045), transparent 42%),
+    rgba(9, 11, 13, 0.92);
+}
+
+.tool-popover button {
+  justify-content: center;
+  min-height: 34px;
+  color: rgba(255, 248, 238, 0.86);
+}
+
+.tool-popover button.playback-tool {
+  background: rgba(164, 234, 208, 0.07);
+}
+
+.tool-popover button.panel-tool {
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.tool-popover button.system-tool {
+  background: rgba(255, 255, 255, 0.038);
+}
+
+.text-floating-actions .tool-popover.text-floating-popover {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.text-find-row,
+.text-replace-row {
+  background: rgba(255, 255, 255, 0.048);
+}
+
+.media-shelf {
+  min-width: 0;
+}
+
+.shelf-section {
+  gap: 10px;
+  padding: 11px;
+  border-color: rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(145deg, rgba(164, 234, 208, 0.035), transparent 48%),
+    rgba(8, 10, 12, 0.76);
+}
+
+.shelf-header {
+  min-height: 32px;
+}
+
+.shelf-header strong {
+  color: var(--lmp-text);
+  font-size: 13.5px;
+}
+
+.shelf-actions {
+  align-items: center;
+}
+
+.shelf-actions button {
+  height: 32px;
+  font-weight: 850;
+}
+
+.library-toolbar {
+  grid-template-columns: minmax(170px, 1fr) minmax(0, auto) minmax(96px, auto);
+  align-items: start;
+}
+
+.library-search,
+.library-sort-select,
+.library-filters button {
+  height: 34px;
+}
+
+.library-filters {
+  align-content: start;
+}
+
+.library-list {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 9px;
+}
+
+.library-list button,
+.recent-list button,
+.queue-list button {
+  min-height: 58px;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.library-list button:hover,
+.recent-list button:hover,
+.queue-list button:hover,
+.moment-list .moment-jump:hover {
+  transform: translateY(-1px);
+}
+
+.recent-list,
+.queue-list {
+  gap: 9px;
+}
+
+.recent-list button,
+.queue-list button {
+  height: 56px;
+}
+
+.moment-list {
+  gap: 9px;
+  align-items: start;
+}
+
+.moment-row {
+  flex-basis: 280px;
+}
+
+.moment-list .moment-jump {
+  height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.moment-list .moment-delete {
+  height: 44px;
+}
+
+.info-section .media-info-list {
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.25fr);
+  gap: 11px;
+}
+
+.media-info-grid.streams {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.tracks-panel {
+  gap: 10px;
+}
+
+.track-card,
+.media-info-card {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.026), rgba(255, 255, 255, 0.01)),
+    rgba(255, 255, 255, 0.055);
+}
+
+.settings-popover {
+  left: 50%;
+  right: auto;
+  width: min(700px, calc(100% - 24px));
+  border-color: rgba(255, 255, 255, 0.11);
+  background:
+    linear-gradient(145deg, rgba(164, 234, 208, 0.04), transparent 42%),
+    rgba(8, 10, 12, 0.9);
+  transform: translateX(-50%);
+}
+
+.player-view.fullscreen-mode .settings-popover {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+.settings-field {
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.document-viewport,
+.text-viewport {
+  padding: clamp(12px, 1.5vw, 20px);
+}
+
+.document-surface {
+  border-radius: 6px;
+}
+
+.text-editor-header {
+  min-height: 38px;
+}
+
+.text-editor {
+  border-color: rgba(255, 255, 255, 0.09);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.024), transparent 44%),
+    rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 980px) {
+  .tracks-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .info-section .media-info-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .transport-dock {
+    padding: 9px;
+  }
+
+  .control-row,
+  .transport-dock.audio-dock .control-row,
+  .transport-dock.viewer-dock .control-row {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .control-meta {
+    justify-self: center;
+    max-width: 100%;
+    text-align: center;
+  }
+
+  .control-cluster.secondary {
+    justify-self: center;
+    justify-content: center;
+  }
+
+  .library-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .library-filters {
+    justify-content: flex-start;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 520px) {
+  .now-playing.audio-panel {
+    transform: translateY(-24px);
+  }
+
+  .now-playing.audio-panel .media-orb {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 12px;
+  }
+
+  .now-playing.audio-panel h1 {
+    font-size: clamp(24px, 7vh, 36px);
+  }
+
+  .now-playing.audio-panel .audio-bars,
+  .now-playing.audio-panel span {
+    display: none;
+  }
+
+  .transport-dock {
+    gap: 8px;
+  }
+
+  .control-meta span {
+    display: none;
+  }
+}
