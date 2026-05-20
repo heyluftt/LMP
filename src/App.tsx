@@ -213,6 +213,10 @@ type NativeAudioTrackList = {
   [index: number]: NativeAudioTrack | undefined;
 };
 
+const playbackPositionRenderIntervalMs = 220;
+const playbackPositionJumpThresholdSeconds = 0.45;
+const playbackProgressAttemptIntervalMs = 750;
+
 function compareLibraryItems(a: MediaFolderItem, b: MediaFolderItem, sort: LibrarySort) {
   if (a.kind === "folder" && b.kind !== "folder") {
     return -1;
@@ -645,6 +649,9 @@ function App() {
   const windowCloseStateRef = useRef({ isText: false, textDirty: false });
   const confirmWindowCloseRef = useRef<() => boolean | Promise<boolean>>(() => true);
   const pendingSeekRef = useRef<PendingSeekState | null>(null);
+  const renderedPlaybackPositionRef = useRef(0);
+  const lastPlaybackPositionRenderAtRef = useRef(0);
+  const lastPlaybackProgressAttemptAtRef = useRef(0);
   const trimPreviewEndRef = useRef<number | null>(null);
   const remuxFallbackRef = useRef<RemuxFallbackState | null>(null);
   const subtitleUrlRef = useRef<string | null>(null);
@@ -656,6 +663,33 @@ function App() {
   const speedRef = useRef(speed);
   settingsRef.current = settings;
   speedRef.current = speed;
+
+  useEffect(() => {
+    renderedPlaybackPositionRef.current = position;
+  }, [position]);
+
+  useEffect(() => {
+    lastPlaybackPositionRenderAtRef.current = 0;
+    lastPlaybackProgressAttemptAtRef.current = 0;
+  }, [currentPath]);
+
+  const commitPlaybackPosition = useCallback((seconds: number, force = false) => {
+    const nextPosition = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    const now = window.performance.now();
+    const renderIsDue =
+      now - lastPlaybackPositionRenderAtRef.current >= playbackPositionRenderIntervalMs;
+    const positionJumped =
+      Math.abs(nextPosition - renderedPlaybackPositionRef.current) >=
+      playbackPositionJumpThresholdSeconds;
+
+    if (!force && !renderIsDue && !positionJumped) {
+      return;
+    }
+
+    lastPlaybackPositionRenderAtRef.current = now;
+    renderedPlaybackPositionRef.current = nextPosition;
+    setPosition(nextPosition);
+  }, []);
 
   const currentTitle = useMemo(
     () => (currentPath ? fileName(currentPath) : "LMP"),
@@ -935,10 +969,10 @@ function App() {
         isAllowedPath: (path) => mediaKind(path) === "video",
         isCurrent: (path, token) => loadTokenRef.current === token && activePlaybackPathRef.current === path,
         getSpeed: () => speedRef.current,
-        setPosition,
+        setPosition: (seconds) => commitPlaybackPosition(seconds, true),
         notify: (message) => showToast(message, "info"),
       }),
-    [showToast],
+    [commitPlaybackPosition, showToast],
   );
 
   useEffect(() => () => resumeController.dispose(), [resumeController]);
@@ -2187,7 +2221,7 @@ function App() {
           const seekTarget = commandSeekTarget(command, media.currentTime || 0, duration);
           if (seekTarget !== null) {
             pendingSeekRef.current = createPendingSeek(seekTarget, duration);
-            setPosition(seekTarget);
+            commitPlaybackPosition(seekTarget, true);
           }
         }
         await player.run(command);
@@ -2198,6 +2232,7 @@ function App() {
     [
       gstreamerActiveForCurrent,
       handlePlaybackProblem,
+      commitPlaybackPosition,
       isTimedMedia,
       nativeEngine,
       resumeController,
@@ -3002,14 +3037,22 @@ function App() {
     trimPreviewEndRef.current = trimRange.end;
     pendingSeekRef.current = createPendingSeek(trimRange.start, duration || 0, 450);
     media.currentTime = trimRange.start;
-    setPosition(trimRange.start);
+    commitPlaybackPosition(trimRange.start, true);
     setPaused(false);
     void media.play().catch((error) => {
       trimPreviewEndRef.current = null;
       setPaused(true);
       showToast(compactError(error), "error");
     });
-  }, [duration, showToast, trimCanExport, trimRange.end, trimRange.start, trimRangeError]);
+  }, [
+    commitPlaybackPosition,
+    duration,
+    showToast,
+    trimCanExport,
+    trimRange.end,
+    trimRange.start,
+    trimRangeError,
+  ]);
 
   const exportTrimClip = useCallback(async () => {
     if (!currentPath || !isVideo) {
@@ -3384,6 +3427,19 @@ function App() {
     [currentPath, resumeController],
   );
 
+  const maybeSavePlaybackProgress = useCallback(
+    (media: HTMLMediaElement) => {
+      const now = window.performance.now();
+      if (now - lastPlaybackProgressAttemptAtRef.current < playbackProgressAttemptIntervalMs) {
+        return;
+      }
+
+      lastPlaybackProgressAttemptAtRef.current = now;
+      savePlaybackProgress(media);
+    },
+    [savePlaybackProgress],
+  );
+
   useEffect(() => {
     const saveOnExit = () => {
       const media = mediaRef.current;
@@ -3440,7 +3496,7 @@ function App() {
         media.pause();
         pendingSeekRef.current = createPendingSeek(previewEnd, media.duration || 0, 250);
         media.currentTime = previewEnd;
-        setPosition(previewEnd);
+        commitPlaybackPosition(previewEnd, true);
         setPaused(true);
         return;
       }
@@ -3452,7 +3508,7 @@ function App() {
       ) {
         pendingSeekRef.current = createPendingSeek(loopRange.start, media.duration || 0, 450);
         media.currentTime = loopRange.start;
-        setPosition(loopRange.start);
+        commitPlaybackPosition(loopRange.start, true);
         return;
       }
 
@@ -3460,10 +3516,10 @@ function App() {
         return;
       }
       pendingSeekRef.current = null;
-      setPosition(nextPosition);
-      savePlaybackProgress(media);
+      commitPlaybackPosition(nextPosition);
+      maybeSavePlaybackProgress(media);
     },
-    [loopRange.end, loopRange.start, savePlaybackProgress],
+    [commitPlaybackPosition, loopRange.end, loopRange.start, maybeSavePlaybackProgress],
   );
 
   const onLoadedMetadata = useCallback(
@@ -3503,7 +3559,7 @@ function App() {
     if (media && loopRange.start !== null && loopRange.end !== null) {
       pendingSeekRef.current = createPendingSeek(loopRange.start, media.duration || 0, 450);
       media.currentTime = loopRange.start;
-      setPosition(loopRange.start);
+      commitPlaybackPosition(loopRange.start, true);
       setPaused(false);
       void media.play().catch(() => setPaused(true));
       return;
@@ -3512,14 +3568,14 @@ function App() {
     if (media && settings.repeatCurrent) {
       pendingSeekRef.current = createPendingSeek(0, media.duration || 0, 450);
       media.currentTime = 0;
-      setPosition(0);
+      commitPlaybackPosition(0, true);
       setPaused(false);
       void media.play().catch(() => setPaused(true));
       return;
     }
 
     if (media && Number.isFinite(media.duration) && media.duration > 0) {
-      setPosition(media.duration);
+      commitPlaybackPosition(media.duration, true);
       savePlaybackProgress(media, true);
     }
     setPaused(true);
@@ -3527,6 +3583,7 @@ function App() {
       void playNextQueueItem();
     }
   }, [
+    commitPlaybackPosition,
     hasNextQueueItem,
     loopRange.end,
     loopRange.start,
@@ -4379,7 +4436,7 @@ function App() {
               onSeeked={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
                   pendingSeekRef.current = null;
-                  setPosition(event.currentTarget.currentTime || 0);
+                  commitPlaybackPosition(event.currentTarget.currentTime || 0, true);
                   savePlaybackProgress(event.currentTarget, true);
                 }
               }}
