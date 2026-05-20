@@ -1,10 +1,10 @@
 # LMP
 
-LMP is a Windows-first, Linux-ready media player and viewer suite built with Tauri, React, TypeScript, and Rust.
+LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust.
 
-**Download Windows Alpha:** [v0.1.0-alpha](https://github.com/heyluftt/LMP/releases/tag/v0.1.0-alpha)
+There is no published GitHub Release yet.
 
-The current alpha is a Windows x64 build. It is unsigned, so Windows SmartScreen may show a warning during download or installation.
+When `v0.1.0-alpha` is available, use the files attached to the GitHub Release. The first alpha will be a Windows x64 build and will be unsigned, so Windows SmartScreen may show a warning during download or installation.
 
 ## What It Does
 
@@ -15,7 +15,7 @@ LMP opens everyday media and document files from Windows Explorer or from inside
 - image and GIF viewing
 - PDF viewing
 - text/code editing
-- DOC/DOCX as editable extracted text copies
+- DOC/DOCX extracted text copy handling
 - recent files, library navigation, and multi-window Open With routing
 
 The first playback path uses the Windows/WebView media stack. LMP does not bundle mpv or VLC.
@@ -27,6 +27,7 @@ The first playback path uses the Windows/WebView media stack. LMP does not bundl
 - Image/GIF viewer with zoom, fit, rotate, and navigation.
 - PDF viewer with page navigation, zoom, page overview, smooth scrolling, drag/pan, and print dialog.
 - Text/code editor with CodeMirror 6, syntax highlighting, search/replace, save/save-as, revert, undo/redo, line numbers, word wrap, and editor settings.
+- Optional integrated terminal for saved text/code files, disabled by default.
 - DOC/DOCX files open as extracted editable text. The original document is not modified.
 - Windows file associations and separate fallback icons for video, audio, image, PDF, text/code, and Word/document files.
 

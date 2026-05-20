@@ -51,6 +51,7 @@ Text:
 - Save, Save As, Revert, undo/redo, word wrap, line numbers and syntax highlighting work.
 - Unsaved-change close/open guard appears when expected.
 - Plain-text metadata stays understandable for normal users, while line/column status remains visible.
+- Optional integrated terminal is off by default, can be enabled, runs saved files, and handles missing shell/runtime messages cleanly.
 
 Shared:
 
@@ -63,7 +64,7 @@ Shared:
 
 Blockers:
 
-- No hard blocker is known from the latest local smoke.
+- No hard blocker is known from the latest smoke pass.
 
 High priority:
 
@@ -71,6 +72,7 @@ High priority:
 - GStreamer fallback is detected and callable, but not yet a seamless embedded playback backend.
 - PDF printing needs a few real-world documents/printers checked after each print-flow change.
 - Native/WebView codec support still varies by machine; release notes must state this clearly.
+- Integrated terminal execution uses saved files, not unsaved editor drafts.
 
 Medium priority:
 

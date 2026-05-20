@@ -1,10 +1,10 @@
 # LMP Project Status
 
-Last updated: 2026-05-19
+Last updated: 2026-05-20
 
 ## Overview
 
-LMP is a Windows-first, Linux-ready Tauri + React + TypeScript desktop suite for media and file viewing. It uses proven platform/helper tools for low-level media and document work, while the project code focuses on the app shell, routing, controls, viewer state, Windows integration, and UI.
+LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust. It uses platform and helper tools for low-level media and document work, while the project code focuses on the app shell, routing, controls, viewer state, Windows integration, and UI.
 
 ## Current Modules
 
@@ -13,6 +13,7 @@ LMP is a Windows-first, Linux-ready Tauri + React + TypeScript desktop suite for
 - Image/GIF: open/view, zoom, fit, rotate, and navigation.
 - PDF/document: pdf.js rendering, page navigation, zoom, page overview, drag/pan, smooth scroll, and print flow.
 - Text/code: CodeMirror 6 editor with syntax highlighting, search/replace, save/save-as, revert, undo/redo, word wrap, line numbers, tab/font settings, and line/column status.
+- Integrated terminal: optional terminal for saved text/code files, disabled by default.
 - Word documents: DOCX/DOC-style files open as editable extracted text copies. Original documents remain unchanged.
 
 ## Architecture
@@ -60,6 +61,8 @@ GStreamer is optional. LMP can detect an installed runtime, but it is not a comp
 
 ## Source and Release Policy
 
+- No GitHub Release has been published yet.
+- When `v0.1.0-alpha` is available, users should download the attached release assets.
 - Source commits should not include installers, packaged ZIPs, `dist/`, Tauri `target/`, smoke media, logs, caches, local release artifacts, or FFmpeg/FFprobe `.exe` files.
 - `src-tauri/binaries/tools/LICENSE-FFmpeg.txt` stays in the repository to document the helper license.
 - Packaged installers and sendable ZIPs belong in GitHub Releases.
