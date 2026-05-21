@@ -18,7 +18,7 @@ use std::{
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WindowEvent};
 use window_state::{restore_window_state, save_window_state, watch_window_state};
 use word_document::{read_word_document as read_word_document_file, WordDocumentContent};
 
@@ -323,8 +323,9 @@ fn main() {
                 );
                 restore_window_state(&window);
                 watch_window_state(&window);
+                let app_state = app.state::<AppState>();
+                watch_window_registry_cleanup(&window, app_state.inner());
                 if main_startup_kind != "unknown" {
-                    let app_state = app.state::<AppState>();
                     let window_media_kinds = app_state.window_media_kinds.clone();
                     let window_media_files = app_state.window_media_files.clone();
                     if let Ok(mut kinds) = window_media_kinds.lock() {
@@ -504,15 +505,7 @@ fn close_current_window(
         &[],
     );
     save_window_state(&window);
-    if let Ok(mut kinds) = state.window_media_kinds.lock() {
-        kinds.remove(window.label());
-    }
-    if let Ok(mut files) = state.window_media_files.lock() {
-        files.remove(window.label());
-    }
-    if let Ok(mut files) = state.window_files.lock() {
-        files.remove(window.label());
-    }
+    cleanup_window_registry(state.inner(), window.label());
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(20));
         let _ = window.destroy();
@@ -670,6 +663,34 @@ fn record_window_files(state: &AppState, label: &str, files: &[String]) {
             kinds.insert(label.to_string(), kind.to_string());
         };
     }
+}
+
+fn cleanup_window_registry(state: &AppState, label: &str) {
+    if let Ok(mut kinds) = state.window_media_kinds.lock() {
+        kinds.remove(label);
+    }
+    if let Ok(mut files) = state.window_media_files.lock() {
+        files.remove(label);
+    }
+    if let Ok(mut files) = state.window_files.lock() {
+        files.remove(label);
+    }
+}
+
+fn watch_window_registry_cleanup(window: &tauri::WebviewWindow, state: &AppState) {
+    let label = window.label().to_string();
+    let state = state.clone();
+    window.on_window_event(move |event| {
+        if matches!(event, WindowEvent::Destroyed) {
+            cleanup_window_registry(&state, &label);
+            log_instance_event(
+                "window-destroy-cleanup",
+                "primary",
+                &format!("windowLabel={label} shouldExit=false"),
+                &[],
+            );
+        }
+    });
 }
 
 fn window_has_assigned_files(state: &AppState, label: &str) -> bool {
@@ -1103,6 +1124,7 @@ fn open_files_in_new_window(
         format!("Could not open media window: {error}")
     })?;
     watch_window_state(&window);
+    watch_window_registry_cleanup(&window, state);
 
     let reveal_window = window.clone();
     thread::spawn(move || {

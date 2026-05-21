@@ -648,6 +648,8 @@ function App() {
   const textCloseAllowedRef = useRef(false);
   const windowCloseStateRef = useRef({ isText: false, textDirty: false });
   const confirmWindowCloseRef = useRef<() => boolean | Promise<boolean>>(() => true);
+  const windowBackendCloseRequestedRef = useRef(false);
+  const windowClosePromptPendingRef = useRef(false);
   const pendingSeekRef = useRef<PendingSeekState | null>(null);
   const renderedPlaybackPositionRef = useRef(0);
   const lastPlaybackPositionRenderAtRef = useRef(0);
@@ -3458,18 +3460,42 @@ function App() {
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
-    const unlisten = appWindow.onCloseRequested(async (event) => {
-      const closeState = windowCloseStateRef.current;
-      if (textCloseAllowedRef.current || !closeState.isText || !closeState.textDirty) {
+    const requestBackendClose = () => {
+      if (windowBackendCloseRequestedRef.current) {
         return;
       }
 
+      windowBackendCloseRequestedRef.current = true;
+      void invoke("close_current_window").catch(() => {
+        void appWindow.destroy().catch(() => undefined);
+      });
+    };
+
+    const unlisten = appWindow.onCloseRequested(async (event) => {
       event.preventDefault();
-      if (await confirmWindowCloseRef.current()) {
+      if (windowBackendCloseRequestedRef.current || windowClosePromptPendingRef.current) {
+        return;
+      }
+
+      const closeState = windowCloseStateRef.current;
+      if (textCloseAllowedRef.current || !closeState.isText || !closeState.textDirty) {
+        requestBackendClose();
+        return;
+      }
+
+      windowClosePromptPendingRef.current = true;
+      let shouldClose = false;
+      try {
+        shouldClose = await confirmWindowCloseRef.current();
+      } catch {
+        shouldClose = false;
+      } finally {
+        windowClosePromptPendingRef.current = false;
+      }
+
+      if (shouldClose) {
         textCloseAllowedRef.current = true;
-        void appWindow.destroy().catch(() => {
-          void appWindow.close().catch(() => undefined);
-        });
+        requestBackendClose();
       }
     });
 
