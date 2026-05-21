@@ -31,6 +31,7 @@ import type {
   CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
   WheelEvent as ReactWheelEvent,
 } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -222,6 +223,11 @@ export function TransportDock({
     onSeekTo(next);
   };
 
+  const releaseTimelinePointer = (event: ReactPointerEvent<HTMLInputElement>) => {
+    commitTimelineSeek();
+    event.currentTarget.blur();
+  };
+
   return (
     <div
       className={`transport-dock ${mediaMode}-dock ${isStaticViewer ? "viewer-dock" : ""}`}
@@ -253,8 +259,8 @@ export function TransportDock({
                 scrubActiveRef.current = true;
                 setDraftPosition(Number(event.currentTarget.value));
               }}
-              onPointerUp={commitTimelineSeek}
-              onPointerCancel={commitTimelineSeek}
+              onPointerUp={releaseTimelinePointer}
+              onPointerCancel={releaseTimelinePointer}
               onBlur={commitTimelineSeek}
               onChange={(event) => {
                 const next = Number(event.currentTarget.value);

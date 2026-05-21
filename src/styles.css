@@ -1085,6 +1085,12 @@ input[type="range"]:focus-visible {
   background: transparent;
 }
 
+.timeline-input:focus,
+.timeline-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .timeline-input::-webkit-slider-runnable-track {
   height: 6px;
   border: 0;
@@ -1100,6 +1106,12 @@ input[type="range"]:focus-visible {
   background: #a4ead0;
   box-shadow: 0 0 0 4px rgba(164, 234, 208, 0.12);
   -webkit-appearance: none;
+}
+
+.timeline-input:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 4px rgba(164, 234, 208, 0.16),
+    0 0 0 7px rgba(164, 234, 208, 0.16);
 }
 
 .control-row {
