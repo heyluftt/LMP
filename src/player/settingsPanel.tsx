@@ -223,10 +223,11 @@ function AppUpdatePanel({
       }
 
       replaceUpdate(nextUpdate);
+      const notes = nextUpdate.body?.trim();
       setDetails({
         currentVersion: nextUpdate.currentVersion,
         date: nextUpdate.date,
-        notes: nextUpdate.body,
+        notes: notes || undefined,
         version: nextUpdate.version,
       });
       setStatus("available");
@@ -293,7 +294,11 @@ function AppUpdatePanel({
             <strong>LMP {details.version}</strong>
             <span>Current version: {details.currentVersion}</span>
             {details.date ? <span>{details.date}</span> : null}
-            {details.notes ? <p>{details.notes}</p> : null}
+            {details.notes ? (
+              <div className="update-notes" aria-label="Update notes">
+                {details.notes}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
