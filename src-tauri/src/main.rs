@@ -1247,6 +1247,16 @@ async fn get_media_thumbnail(path: String) -> Result<MediaThumbnail, String> {
         .map_err(|error| format!("Could not generate thumbnail: {error}"))?
 }
 
+async fn run_blocking_command<T, F>(context: &'static str, work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("{context}: {error}"))?
+}
+
 #[tauri::command]
 fn get_thumbnail_cache_status() -> Result<ThumbnailCacheStatus, String> {
     thumbnail_cache_status()
@@ -1309,7 +1319,17 @@ fn open_subtitle_dialog(media_path: Option<String>) -> Result<Option<SubtitleFil
 }
 
 #[tauri::command]
-fn browse_media_folder(
+async fn browse_media_folder(
+    folder_path: Option<String>,
+    media_path: Option<String>,
+) -> Result<MediaFolder, String> {
+    run_blocking_command("Could not finish folder scan", move || {
+        browse_media_folder_sync(folder_path, media_path)
+    })
+    .await
+}
+
+fn browse_media_folder_sync(
     folder_path: Option<String>,
     media_path: Option<String>,
 ) -> Result<MediaFolder, String> {
@@ -1353,7 +1373,14 @@ fn browse_media_folder(
 }
 
 #[tauri::command]
-fn find_sidecar_subtitle(media_path: String) -> Result<Option<SubtitleFile>, String> {
+async fn find_sidecar_subtitle(media_path: String) -> Result<Option<SubtitleFile>, String> {
+    run_blocking_command("Could not finish subtitle sidecar scan", move || {
+        find_sidecar_subtitle_sync(media_path)
+    })
+    .await
+}
+
+fn find_sidecar_subtitle_sync(media_path: String) -> Result<Option<SubtitleFile>, String> {
     let media = PathBuf::from(media_path);
     if !media.exists() || !media.is_file() {
         return Ok(None);
@@ -1399,7 +1426,14 @@ fn find_sidecar_subtitle(media_path: String) -> Result<Option<SubtitleFile>, Str
 }
 
 #[tauri::command]
-fn list_sibling_media(media_path: String) -> Result<Vec<String>, String> {
+async fn list_sibling_media(media_path: String) -> Result<Vec<String>, String> {
+    run_blocking_command("Could not finish sibling media scan", move || {
+        list_sibling_media_sync(media_path)
+    })
+    .await
+}
+
+fn list_sibling_media_sync(media_path: String) -> Result<Vec<String>, String> {
     let media = PathBuf::from(media_path);
     if !media.exists() || !media.is_file() || !is_supported_media_path(&media) {
         return Ok(Vec::new());
@@ -1761,7 +1795,14 @@ fn print_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn read_word_document(path: String) -> Result<WordDocumentContent, String> {
+async fn read_word_document(path: String) -> Result<WordDocumentContent, String> {
+    run_blocking_command("Could not finish reading Word document", move || {
+        read_word_document_sync(path)
+    })
+    .await
+}
+
+fn read_word_document_sync(path: String) -> Result<WordDocumentContent, String> {
     let file = PathBuf::from(path);
     if !file.exists() || !file.is_file() {
         return Err(format!("File does not exist: {}", file.display()));
@@ -1780,7 +1821,14 @@ fn read_word_document(path: String) -> Result<WordDocumentContent, String> {
 }
 
 #[tauri::command]
-fn read_text_file(path: String) -> Result<TextFileContent, String> {
+async fn read_text_file(path: String) -> Result<TextFileContent, String> {
+    run_blocking_command("Could not finish reading text file", move || {
+        read_text_file_sync(path)
+    })
+    .await
+}
+
+fn read_text_file_sync(path: String) -> Result<TextFileContent, String> {
     let file = PathBuf::from(path);
     if !file.exists() || !file.is_file() {
         return Err(format!("File does not exist: {}", file.display()));
@@ -1822,7 +1870,19 @@ fn read_text_file(path: String) -> Result<TextFileContent, String> {
 }
 
 #[tauri::command]
-fn write_text_file(
+async fn write_text_file(
+    path: String,
+    content: String,
+    line_ending: Option<String>,
+    encoding: Option<String>,
+) -> Result<(), String> {
+    run_blocking_command("Could not finish saving text file", move || {
+        write_text_file_sync(path, content, line_ending, encoding)
+    })
+    .await
+}
+
+fn write_text_file_sync(
     path: String,
     content: String,
     line_ending: Option<String>,
