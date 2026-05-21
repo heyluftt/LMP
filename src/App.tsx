@@ -216,6 +216,7 @@ type NativeAudioTrackList = {
 const playbackPositionRenderIntervalMs = 220;
 const playbackPositionJumpThresholdSeconds = 0.45;
 const playbackProgressAttemptIntervalMs = 750;
+const startupDiagnosticsDelayMs = 450;
 
 function compareLibraryItems(a: MediaFolderItem, b: MediaFolderItem, sort: LibrarySort) {
   if (a.kind === "folder" && b.kind !== "folder") {
@@ -3164,18 +3165,6 @@ function App() {
   }, [showToast, trimOutputPath]);
 
   useEffect(() => {
-    invoke<EngineStatus>("get_engine_status")
-      .then(setEngineStatus)
-      .catch((error) => showToast(String(error), "error"));
-
-    invoke<PlaybackBackendStatus[]>("get_playback_backends")
-      .then(setPlaybackBackends)
-      .catch(() => undefined);
-
-    readGstreamerPlaybackSession()
-      .then(setGstreamerSession)
-      .catch(() => undefined);
-
     invoke<string[]>("take_startup_files")
       .then((paths) => {
         if (paths.length > 0) {
@@ -3204,7 +3193,45 @@ function App() {
     return () => {
       void unlisten.then((dispose) => dispose());
     };
-  }, [handleIncomingOpenRequest, playQueue, showToast, windowLabel]);
+  }, [handleIncomingOpenRequest, playQueue, windowLabel]);
+
+  useEffect(() => {
+    let disposed = false;
+    const timer = window.setTimeout(() => {
+      void invoke<EngineStatus>("get_engine_status")
+        .then((status) => {
+          if (!disposed) {
+            setEngineStatus(status);
+          }
+        })
+        .catch((error) => {
+          if (!disposed) {
+            showToast(String(error), "error");
+          }
+        });
+
+      void invoke<PlaybackBackendStatus[]>("get_playback_backends")
+        .then((backends) => {
+          if (!disposed) {
+            setPlaybackBackends(backends);
+          }
+        })
+        .catch(() => undefined);
+
+      void readGstreamerPlaybackSession()
+        .then((session) => {
+          if (!disposed) {
+            setGstreamerSession(session);
+          }
+        })
+        .catch(() => undefined);
+    }, startupDiagnosticsDelayMs);
+
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [showToast]);
 
   useEffect(() => {
     const unlisten = listen<ClipExportProgress>("clip-export-progress", (event) => {
