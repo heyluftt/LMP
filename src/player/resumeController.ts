@@ -59,27 +59,37 @@ export class ResumeController {
     this.active = null;
   }
 
-  maybeResume(media: HTMLMediaElement, path: string, token: number) {
+  maybeResume(media: HTMLMediaElement, path: string, token: number): boolean {
     if (
       !this.options.isEnabled() ||
       !this.options.isAllowedPath(path) ||
-      this.pending ||
-      this.appliedPath === path ||
       !this.isActive(path, token) ||
       this.active?.cancelledByUser
     ) {
-      return;
+      return false;
+    }
+
+    if (this.pending) {
+      return true;
+    }
+
+    if (this.appliedPath === path) {
+      return false;
     }
 
     const resume = getResume(path);
     if (!resume || resume.position <= 5) {
-      return;
+      return false;
     }
 
     const durationAllowsResume =
       !Number.isFinite(media.duration) || media.duration <= 0 || media.duration - resume.position > 8;
     if (!durationAllowsResume) {
-      return;
+      return false;
+    }
+
+    if (media.readyState < 2) {
+      return false;
     }
 
     this.pending = true;
@@ -183,6 +193,7 @@ export class ResumeController {
     };
 
     tryApply();
+    return true;
   }
 
   saveProgress(media: HTMLMediaElement, path: string | null, token: number, force = false) {

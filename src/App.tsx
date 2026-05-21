@@ -43,6 +43,7 @@ import {
   addMoment,
   clearRecent,
   findAdjacentMoment,
+  getResume,
   readMoments,
   readRecent,
   rememberMedia,
@@ -191,6 +192,12 @@ type SubtitleTrack = {
   label: string;
   src: string;
   automatic: boolean;
+};
+
+type StartupResumeState = {
+  path: string;
+  token: number;
+  target: number;
 };
 
 type MediaDetails = {
@@ -652,6 +659,7 @@ function App() {
   const windowBackendCloseRequestedRef = useRef(false);
   const windowClosePromptPendingRef = useRef(false);
   const pendingSeekRef = useRef<PendingSeekState | null>(null);
+  const startupResumeRef = useRef<StartupResumeState | null>(null);
   const renderedPlaybackPositionRef = useRef(0);
   const lastPlaybackPositionRenderAtRef = useRef(0);
   const lastPlaybackProgressAttemptAtRef = useRef(0);
@@ -996,7 +1004,12 @@ function App() {
 
       windowRevealTimerRef.current = window.setTimeout(() => {
         windowRevealTimerRef.current = null;
-        if (loadTokenRef.current === token && activePlaybackPathRef.current === path) {
+        const startupResume = startupResumeRef.current;
+        if (
+          loadTokenRef.current === token &&
+          activePlaybackPathRef.current === path &&
+          !(startupResume && startupResume.token === token && startupResume.path === path)
+        ) {
           void invoke("reveal_current_window").catch(() => undefined);
         }
       }, delayMs);
@@ -1007,12 +1020,14 @@ function App() {
   const revealCurrentWindowWhenMediaReady = useCallback(
     (media: HTMLMediaElement) => {
       const token = Number(media.dataset.loadToken ?? 0);
+      const startupResume = startupResumeRef.current;
       if (
         token > 0 &&
         token === loadTokenRef.current &&
         currentPath &&
         activePlaybackPathRef.current === currentPath &&
-        media.readyState >= 2
+        media.readyState >= 2 &&
+        !(startupResume && startupResume.token === token && startupResume.path === currentPath)
       ) {
         revealCurrentWindow();
       }
@@ -1553,6 +1568,7 @@ function App() {
       const loadToken = loadTokenRef.current + 1;
       loadTokenRef.current = loadToken;
       pendingSeekRef.current = null;
+      startupResumeRef.current = null;
       if (windowRevealTimerRef.current !== null) {
         window.clearTimeout(windowRevealTimerRef.current);
         windowRevealTimerRef.current = null;
@@ -1601,6 +1617,10 @@ function App() {
         let playablePath = media.path;
         const needsNativePrep =
           settings.fallbackEngine !== "off" && !staticKind && canTryRemuxFallback(media.path);
+        const startupResume =
+          !staticKind && kind === "video" && settings.resumePlayback
+            ? getResume(media.path)
+            : null;
 
         activePlaybackPathRef.current = media.path;
         void applyWindowProfile(viewKind);
@@ -1615,7 +1635,17 @@ function App() {
         }
         setCurrentPath(media.path);
         setDuration(0);
-        setPosition(0);
+        if (startupResume && startupResume.position > 5) {
+          startupResumeRef.current = {
+            path: media.path,
+            target: startupResume.position,
+            token: loadToken,
+          };
+          commitPlaybackPosition(startupResume.position, true);
+        } else {
+          startupResumeRef.current = null;
+          commitPlaybackPosition(0, true);
+        }
         setPaused(staticKind);
         resetImageView();
         setDocumentView(defaultDocumentView);
@@ -1793,6 +1823,7 @@ function App() {
     [
       abortNativeMediaLoad,
       clearSubtitleTrack,
+      commitPlaybackPosition,
       confirmTextNavigation,
       inspectMedia,
       loadAudioArtwork,
@@ -1803,6 +1834,7 @@ function App() {
       resetImageView,
       settings.fallbackEngine,
       settings.rememberRecentMedia,
+      settings.resumePlayback,
       settings.textWordExtractionFormat,
       showToast,
       stopTrackedGstreamer,
@@ -2101,7 +2133,12 @@ function App() {
         remuxFallbackRef.current = { path, status: "done" };
         resumeController.beginLoad(path, loadTokenRef.current);
         setDuration(0);
-        setPosition(0);
+        const startupResume = startupResumeRef.current;
+        if (startupResume?.path === path && startupResume.token === loadTokenRef.current) {
+          commitPlaybackPosition(startupResume.target, true);
+        } else {
+          commitPlaybackPosition(0, true);
+        }
         setSourceUrl(convertFileSrc(remuxed.path));
         scheduleWindowRevealFallback(path, loadTokenRef.current, 1400);
         showToast("TS remuxed without re-encoding.", "success");
@@ -2118,7 +2155,15 @@ function App() {
 
       return true;
     },
-    [currentPath, resumeController, revealCurrentWindow, scheduleWindowRevealFallback, settings.fallbackEngine, showToast],
+    [
+      commitPlaybackPosition,
+      currentPath,
+      resumeController,
+      revealCurrentWindow,
+      scheduleWindowRevealFallback,
+      settings.fallbackEngine,
+      showToast,
+    ],
   );
 
   const tryGstreamerProbe = useCallback(async () => {
@@ -3370,21 +3415,34 @@ function App() {
     const loadPath = activePlaybackPathRef.current;
     let disposed = false;
     let retryTimer: number | null = null;
+    let resumePlayTimer: number | null = null;
+    let playbackStarted = false;
+    let startupPlayRequested = false;
+    let startupResumeSettled = false;
+    let startupResumeWaitUntil = 0;
     media.dataset.loadToken = String(loadToken);
     const player = new NativeMediaEngine(media);
-    player.load(sourceUrl, volumeRef.current, speedRef.current);
 
     const isStillActive = () =>
       !disposed && loadToken === loadTokenRef.current && activePlaybackPathRef.current === loadPath;
 
+    const clearStartupResume = () => {
+      const startupResume = startupResumeRef.current;
+      if (startupResume?.token === loadToken && startupResume.path === loadPath) {
+        startupResumeRef.current = null;
+      }
+    };
+
     const attemptPlay = async (retry = true) => {
-      if (!isStillActive()) {
+      if (!isStillActive() || playbackStarted) {
         return;
       }
 
+      playbackStarted = true;
       try {
         await player.play();
       } catch (error) {
+        playbackStarted = false;
         if (!isStillActive()) {
           return;
         }
@@ -3403,15 +3461,66 @@ function App() {
       }
     };
 
-    const playWhenReady = () => void attemptPlay();
+    const playAfterStartupResume = () => {
+      if (startupResumeSettled) {
+        return;
+      }
+      const startupResume = startupResumeRef.current;
+      if (startupResume?.token === loadToken && startupResume.path === loadPath) {
+        const actualPosition = media.currentTime || 0;
+        const targetReached = Math.abs(actualPosition - startupResume.target) <= 1.25;
+        if (!targetReached && performance.now() < startupResumeWaitUntil) {
+          resumePlayTimer = window.setTimeout(playAfterStartupResume, 120);
+          return;
+        }
+      }
+      startupResumeSettled = true;
+      clearStartupResume();
+      revealCurrentWindow();
+      void attemptPlay();
+    };
+
+    const playWhenReady = () => {
+      if (!isStillActive() || startupPlayRequested) {
+        return;
+      }
+      startupPlayRequested = true;
+
+      const startupResume = startupResumeRef.current;
+      if (startupResume?.token === loadToken && startupResume.path === loadPath) {
+        media.addEventListener("seeked", playAfterStartupResume, { once: true });
+        const resumeStarted = resumeController.maybeResume(media, startupResume.path, loadToken);
+        if (resumeStarted) {
+          startupResumeWaitUntil = performance.now() + 2600;
+          pendingSeekRef.current = createPendingSeek(startupResume.target, media.duration || 0, 1800);
+          resumePlayTimer = window.setTimeout(playAfterStartupResume, 900);
+          return;
+        }
+        media.removeEventListener("seeked", playAfterStartupResume);
+        clearStartupResume();
+      }
+
+      revealCurrentWindow();
+      void attemptPlay();
+    };
+
     media.addEventListener("canplay", playWhenReady, { once: true });
-    retryTimer = window.setTimeout(() => void attemptPlay(), 120);
+    player.load(sourceUrl, volumeRef.current, speedRef.current);
+    retryTimer = window.setTimeout(() => {
+      if (media.readyState >= 3) {
+        playWhenReady();
+      }
+    }, 900);
 
     return () => {
       disposed = true;
       media.removeEventListener("canplay", playWhenReady);
+      media.removeEventListener("seeked", playAfterStartupResume);
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer);
+      }
+      if (resumePlayTimer !== null) {
+        window.clearTimeout(resumePlayTimer);
       }
       if (loadToken !== loadTokenRef.current || activePlaybackPathRef.current !== loadPath) {
         try {
@@ -3421,7 +3530,7 @@ function App() {
         }
       }
     };
-  }, [handlePlaybackProblem, isStaticViewer, sourceUrl, showToast]);
+  }, [handlePlaybackProblem, isStaticViewer, resumeController, revealCurrentWindow, sourceUrl, showToast]);
 
   useEffect(() => {
     const media = mediaRef.current;
@@ -3531,15 +3640,6 @@ function App() {
     };
   }, []);
 
-  const maybeResume = useCallback(
-    (media: HTMLMediaElement) => {
-      if (currentPath) {
-        resumeController.maybeResume(media, currentPath, loadTokenRef.current);
-      }
-    },
-    [currentPath, resumeController],
-  );
-
   const onTimeUpdate = useCallback(
     (media: HTMLMediaElement) => {
       const nextPosition = media.currentTime || 0;
@@ -3600,9 +3700,8 @@ function App() {
       setNativeAudioTrackIndex(enabledAudioTrack);
       media.defaultPlaybackRate = speed;
       media.playbackRate = speed;
-      maybeResume(media);
     },
-    [maybeResume, speed],
+    [speed],
   );
 
   const onEnded = useCallback(() => {
@@ -4457,12 +4556,10 @@ function App() {
             <video
               ref={mediaRef}
               className={`media-surface ${isAudio ? "audio-only" : ""}`}
-              src={sourceUrl ?? undefined}
               playsInline
               onDurationChange={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
                   setDuration(event.currentTarget.duration || 0);
-                  maybeResume(event.currentTarget);
                 }
               }}
               onLoadedMetadata={(event) => {
@@ -4478,7 +4575,6 @@ function App() {
               onCanPlay={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
                   revealCurrentWindowWhenMediaReady(event.currentTarget);
-                  maybeResume(event.currentTarget);
                 }
               }}
               onTimeUpdate={(event) => {

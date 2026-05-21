@@ -11,10 +11,14 @@ export class NativeMediaEngine {
   }
 
   load(src: string, volume: number, speed: number) {
-    this.media.src = src;
     this.media.volume = clampVolume(volume) / 100;
     this.setSpeed(speed);
-    this.media.load();
+    if (this.media.src !== src) {
+      this.media.src = src;
+      this.media.load();
+    } else if (this.media.readyState === 0) {
+      this.media.load();
+    }
   }
 
   async play() {
