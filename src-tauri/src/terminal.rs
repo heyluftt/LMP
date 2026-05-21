@@ -7,7 +7,7 @@ use std::{
     sync::Mutex,
     thread,
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Default)]
 pub struct TerminalState {
@@ -87,11 +87,22 @@ fn build_shell_command(shell: Option<String>, cwd: Option<String>) -> CommandBui
 }
 
 fn close_existing_session(state: &TerminalState, id: &str) {
-    let existing = state.sessions.lock().ok().and_then(|mut sessions| sessions.remove(id));
-
-    if let Some(mut session) = existing {
-        let _ = session.child.kill();
+    if let Some(session) = remove_terminal_session(state, id) {
+        finish_terminal_session(session);
     }
+}
+
+fn remove_terminal_session(state: &TerminalState, id: &str) -> Option<TerminalSession> {
+    state.sessions.lock().ok().and_then(|mut sessions| sessions.remove(id))
+}
+
+fn finish_terminal_session(mut session: TerminalSession) {
+    if matches!(session.child.try_wait(), Ok(Some(_))) {
+        return;
+    }
+
+    let _ = session.child.kill();
+    let _ = session.child.wait();
 }
 
 #[tauri::command]
@@ -143,6 +154,18 @@ pub fn terminal_open(
     let reader_id = id.clone();
     let reader_app = app.clone();
 
+    let session = TerminalSession {
+        writer,
+        child,
+        master: pty_pair.master,
+    };
+
+    state
+        .sessions
+        .lock()
+        .map_err(|_| "terminal session lock poisoned".to_string())?
+        .insert(id, session);
+
     thread::spawn(move || {
         let mut buffer = [0_u8; 8192];
 
@@ -169,19 +192,12 @@ pub fn terminal_open(
                 id: reader_id.clone(),
             },
         );
+
+        let terminal_state = reader_app.state::<TerminalState>();
+        if let Some(session) = remove_terminal_session(terminal_state.inner(), &reader_id) {
+            finish_terminal_session(session);
+        }
     });
-
-    let session = TerminalSession {
-        writer,
-        child,
-        master: pty_pair.master,
-    };
-
-    state
-        .sessions
-        .lock()
-        .map_err(|_| "terminal session lock poisoned".to_string())?
-        .insert(id, session);
 
     Ok(())
 }
@@ -248,14 +264,8 @@ pub fn terminal_kill(
     state: State<'_, TerminalState>,
     id: String,
 ) -> Result<(), String> {
-    let session = state
-        .sessions
-        .lock()
-        .map_err(|_| "terminal session lock poisoned".to_string())?
-        .remove(id.trim());
-
-    if let Some(mut session) = session {
-        let _ = session.child.kill();
+    if let Some(session) = remove_terminal_session(state.inner(), id.trim()) {
+        finish_terminal_session(session);
     }
 
     Ok(())
