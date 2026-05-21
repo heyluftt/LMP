@@ -624,6 +624,7 @@ function App() {
   const [textActiveMatchIndex, setTextActiveMatchIndex] = useState(-1);
   const [shelfMode, setShelfMode] = useState<MediaShelfMode>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("controls");
+  const [updateInstallLocked, setUpdateInstallLocked] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -1973,8 +1974,17 @@ function App() {
   const toggleShelfMode = useCallback(
     (mode: ShelfCapability) => {
       if (!hasMedia || !canOpenShelf(mediaCapabilities, mode)) {
+        if (updateInstallLocked && shelfMode === "settings") {
+          showToast("Update installation is in progress.", "info");
+          return;
+        }
         setToolsOpen(false);
         setShelfMode(null);
+        return;
+      }
+
+      if (updateInstallLocked && shelfMode === "settings") {
+        showToast("Update installation is in progress.", "info");
         return;
       }
 
@@ -1984,16 +1994,20 @@ function App() {
       setControlActivity((value) => value + 1);
       setShelfMode((current) => (current === mode ? null : mode));
     },
-    [hasMedia, mediaCapabilities],
+    [hasMedia, mediaCapabilities, shelfMode, showToast, updateInstallLocked],
   );
 
   const closeShelf = useCallback(() => {
+    if (updateInstallLocked && shelfMode === "settings") {
+      showToast("Update installation is in progress.", "info");
+      return;
+    }
     setShelfMode(null);
     setToolsOpen(false);
     setControlsPinned(false);
     setControlsVisible(true);
     setControlActivity((value) => value + 1);
-  }, []);
+  }, [shelfMode, showToast, updateInstallLocked]);
 
   const addFilesToQueue = useCallback(async () => {
     if (!supportsQueue) {
@@ -4811,10 +4825,12 @@ function App() {
             onReset={resetSettings}
             onSetPlayerSpeed={setPlayerSpeed}
             onTabChange={setSettingsTab}
+            onUpdateInstallLockChange={setUpdateInstallLocked}
             playbackBackends={playbackBackends}
             settings={settings}
             speed={speed}
             tabs={activeSettingsTabs}
+            updateInstallLocked={updateInstallLocked}
           />
         ) : null}
       </section>

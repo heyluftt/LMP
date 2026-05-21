@@ -92,10 +92,12 @@ type SettingsPanelProps = {
   onReset: () => void;
   onSetPlayerSpeed: (speed: number) => void;
   onTabChange: (tab: SettingsTab) => void;
+  onUpdateInstallLockChange: (locked: boolean) => void;
   playbackBackends: PlaybackBackendStatus[];
   settings: PlayerSettings;
   speed: number;
   tabs: SettingsTabDefinition[];
+  updateInstallLocked: boolean;
 };
 
 function stepNumber(value: number, step: number, direction: -1 | 1) {
@@ -165,7 +167,11 @@ function formatUpdateProgress(downloadedBytes: number, contentLength: number | n
   return `${Math.round((downloadedBytes / contentLength) * 100)}%`;
 }
 
-function AppUpdatePanel() {
+function AppUpdatePanel({
+  onInstallLockChange,
+}: {
+  onInstallLockChange: (locked: boolean) => void;
+}) {
   const updateRef = useRef<Update | null>(null);
   const [status, setStatus] = useState<UpdateStatus>("idle");
   const [details, setDetails] = useState<UpdateDetails | null>(null);
@@ -175,6 +181,7 @@ function AppUpdatePanel() {
 
   const busy = status === "checking" || status === "installing" || status === "restarting";
   const installReady = status === "available" && updateRef.current !== null;
+  const installLocked = status === "installing" || status === "restarting";
   const progressLabel = status === "installing" ? formatUpdateProgress(downloadedBytes, contentLength) : "";
   const progressPercent = contentLength ? Math.max(0, Math.min(100, (downloadedBytes / contentLength) * 100)) : 0;
 
@@ -187,12 +194,17 @@ function AppUpdatePanel() {
 
   useEffect(() => {
     return () => {
+      onInstallLockChange(false);
       if (updateRef.current) {
         void updateRef.current.close().catch(() => undefined);
         updateRef.current = null;
       }
     };
-  }, []);
+  }, [onInstallLockChange]);
+
+  useEffect(() => {
+    onInstallLockChange(installLocked);
+  }, [installLocked, onInstallLockChange]);
 
   const handleCheck = async () => {
     replaceUpdate(null);
@@ -325,10 +337,12 @@ export function SettingsPanel({
   onReset,
   onSetPlayerSpeed,
   onTabChange,
+  onUpdateInstallLockChange,
   playbackBackends,
   settings,
   speed,
   tabs,
+  updateInstallLocked,
 }: SettingsPanelProps) {
   return (
     <div
@@ -342,8 +356,16 @@ export function SettingsPanel({
         <Settings2 size={17} />
         <strong>Settings</strong>
         <div className="shelf-actions">
-          <button onClick={onReset}>Reset</button>
-          <button className="shelf-close" onClick={onClose} title="Close settings" aria-label="Close settings">
+          <button onClick={onReset} disabled={updateInstallLocked}>
+            Reset
+          </button>
+          <button
+            className="shelf-close"
+            onClick={onClose}
+            disabled={updateInstallLocked}
+            title={updateInstallLocked ? "Update installation is running" : "Close settings"}
+            aria-label="Close settings"
+          >
             <X size={16} />
           </button>
         </div>
@@ -355,6 +377,7 @@ export function SettingsPanel({
             key={tab.id}
             className={activeTab === tab.id ? "active" : ""}
             onClick={() => onTabChange(tab.id)}
+            disabled={updateInstallLocked}
             role="tab"
             aria-selected={activeTab === tab.id}
           >
@@ -946,7 +969,7 @@ export function SettingsPanel({
           </div>
         ) : null}
 
-        {activeTab === "updates" ? <AppUpdatePanel /> : null}
+        {activeTab === "updates" ? <AppUpdatePanel onInstallLockChange={onUpdateInstallLockChange} /> : null}
       </div>
     </div>
   );
