@@ -82,6 +82,13 @@ export function TextTerminalPanel({
     let outputUnlisten: UnlistenFn | null = null;
     let exitUnlisten: UnlistenFn | null = null;
 
+    const disposeTerminalListeners = () => {
+      outputUnlisten?.();
+      exitUnlisten?.();
+      outputUnlisten = null;
+      exitUnlisten = null;
+    };
+
     const terminal = new Terminal({
       cursorBlink: true,
       convertEol: true,
@@ -158,35 +165,51 @@ export function TextTerminalPanel({
     setStatus("starting");
     setErrorMessage(null);
 
-    Promise.all([
-      listen<TerminalOutputEvent>("terminal-output", (event) => {
-        if (event.payload.id !== sessionId) return;
-        terminal.write(event.payload.data);
-      }),
-      listen<TerminalExitEvent>("terminal-exit", (event) => {
-        if (event.payload.id !== sessionId) return;
+    const startTerminal = async () => {
+      try {
+        const output = await listen<TerminalOutputEvent>("terminal-output", (event) => {
+          if (event.payload.id !== sessionId) return;
+          terminal.write(event.payload.data);
+        });
 
-        if (!disposed) {
-          setRunning(false);
-          setStatus("closed");
-          terminal.writeln("\r\n[terminal closed]");
+        if (disposed) {
+          output();
+          return;
         }
-      }),
-    ])
-      .then(([output, exit]) => {
+
         outputUnlisten = output;
+
+        const exit = await listen<TerminalExitEvent>("terminal-exit", (event) => {
+          if (event.payload.id !== sessionId) return;
+
+          if (!disposed) {
+            setRunning(false);
+            setStatus("closed");
+            terminal.writeln("\r\n[terminal closed]");
+          }
+        });
+
+        if (disposed) {
+          exit();
+          return;
+        }
+
         exitUnlisten = exit;
 
-        return invoke("terminal_open", {
+        await invoke("terminal_open", {
           id: sessionId,
           cwd: effectiveCwd,
           shell: null,
           cols: 100,
           rows: 24,
         });
-      })
-      .then(() => {
-        if (disposed) return;
+
+        if (disposed) {
+          void invoke("terminal_kill", {
+            id: sessionId,
+          });
+          return;
+        }
 
         setRunning(true);
         setStatus("running");
@@ -195,8 +218,8 @@ export function TextTerminalPanel({
           fitAndResize();
           terminal.focus();
         });
-      })
-      .catch((error) => {
+      } catch (error) {
+        disposeTerminalListeners();
         if (disposed) return;
 
         const message = String(error);
@@ -204,14 +227,16 @@ export function TextTerminalPanel({
         setStatus("error");
         setErrorMessage(message);
         terminal.writeln(`[terminal failed to start] ${message}`);
-      });
+      }
+    };
+
+    void startTerminal();
 
     return () => {
       disposed = true;
       resizeObserver.disconnect();
 
-      outputUnlisten?.();
-      exitUnlisten?.();
+      disposeTerminalListeners();
 
       void invoke("terminal_kill", {
         id: sessionId,
