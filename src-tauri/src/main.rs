@@ -289,6 +289,7 @@ fn main() {
     let single_instance_state = state.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_single_instance::init(
             move |app, args, _cwd| {
                 let files = media_args(args.iter().cloned());
@@ -309,6 +310,8 @@ fn main() {
         .manage(state)
         .manage(terminal::TerminalState::default())
         .setup(move |app| {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
             if let Some(window) = app.get_webview_window("main") {
                 log_instance_event(
                     "window-setup",

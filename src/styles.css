@@ -2710,6 +2710,96 @@ button.track-card:hover,
   font-weight: 900;
 }
 
+.update-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.update-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 8px;
+  color: #e9e6dc;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.update-heading {
+  gap: 3px;
+}
+
+.update-message,
+.update-details p {
+  margin: 0;
+  color: rgba(247, 242, 235, 0.68);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.update-details {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.update-details strong {
+  color: rgba(255, 248, 238, 0.92);
+  font-size: 13px;
+}
+
+.update-details span {
+  color: rgba(247, 242, 235, 0.52);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.update-progress {
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.update-progress span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 8px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #a4ead0, #edc578);
+}
+
+.update-progress strong {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: #09100f;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.update-actions .text-button {
+  min-width: 170px;
+}
+
+.update-install-button:not(:disabled) {
+  color: #09100f;
+  background: linear-gradient(135deg, #a4ead0, #edc578);
+}
+
 .shortcut-strip {
   display: flex;
   grid-column: 1 / -1;

@@ -34,6 +34,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis", "msi"],
     "icon": ["icons/icon.ico"],
     "publisher": "heyluftt",
@@ -93,5 +94,16 @@
         "role": "Editor"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEFBRjgwMEYxMzQ5MzY5MjkKUldRcGFaTTA4UUQ0cXFleWxOb0NHcTNsZHNMUGhNZVlWeGRZa3FNcVU2UlJ5c0IvNVNSSkorQzMK",
+      "endpoints": [
+        "https://github.com/heyluftt/LMP/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

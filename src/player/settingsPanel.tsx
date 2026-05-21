@@ -1,4 +1,7 @@
-import { Minus, Plus, Settings2, X } from "lucide-react";
+import { Download, Minus, Plus, RefreshCw, Settings2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { relaunch } from "@tauri-apps/plugin-process";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 
 import type { MediaKind } from "../lib/playerBrain";
 import type { PlayerSettings } from "./settings";
@@ -12,6 +15,7 @@ export type SettingsTab =
   | "viewer"
   | "text"
   | "textCode"
+  | "updates"
   | "shortcuts";
 
 type SettingsTabDefinition = {
@@ -23,22 +27,26 @@ export const playerSettingsTabs: SettingsTabDefinition[] = [
   { id: "controls", label: "Controls" },
   { id: "playback", label: "Playback" },
   { id: "engine", label: "Engine" },
+  { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const viewerSettingsTabs: SettingsTabDefinition[] = [
   { id: "viewer", label: "Viewer" },
+  { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const audioSettingsTabs: SettingsTabDefinition[] = [
   { id: "audio", label: "Audio" },
+  { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const textSettingsTabs: SettingsTabDefinition[] = [
   { id: "text", label: "Text" },
   { id: "textCode", label: "Code" },
+  { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
@@ -131,6 +139,169 @@ function SettingStepper({
           <Plus size={14} />
         </button>
         <small>{unit}</small>
+      </div>
+    </div>
+  );
+}
+
+type UpdateStatus = "idle" | "checking" | "available" | "upToDate" | "installing" | "restarting" | "error";
+
+type UpdateDetails = {
+  currentVersion: string;
+  date?: string;
+  notes?: string;
+  version: string;
+};
+
+function describeUpdateError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return message.trim() || "Could not check for updates.";
+}
+
+function formatUpdateProgress(downloadedBytes: number, contentLength: number | null) {
+  if (!contentLength) {
+    return `${Math.round(downloadedBytes / 1024 / 1024)} MB`;
+  }
+  return `${Math.round((downloadedBytes / contentLength) * 100)}%`;
+}
+
+function AppUpdatePanel() {
+  const updateRef = useRef<Update | null>(null);
+  const [status, setStatus] = useState<UpdateStatus>("idle");
+  const [details, setDetails] = useState<UpdateDetails | null>(null);
+  const [message, setMessage] = useState("Check manually when you want to look for a new LMP build.");
+  const [downloadedBytes, setDownloadedBytes] = useState(0);
+  const [contentLength, setContentLength] = useState<number | null>(null);
+
+  const busy = status === "checking" || status === "installing" || status === "restarting";
+  const installReady = status === "available" && updateRef.current !== null;
+  const progressLabel = status === "installing" ? formatUpdateProgress(downloadedBytes, contentLength) : "";
+  const progressPercent = contentLength ? Math.max(0, Math.min(100, (downloadedBytes / contentLength) * 100)) : 0;
+
+  const replaceUpdate = (nextUpdate: Update | null) => {
+    if (updateRef.current && updateRef.current !== nextUpdate) {
+      void updateRef.current.close().catch(() => undefined);
+    }
+    updateRef.current = nextUpdate;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (updateRef.current) {
+        void updateRef.current.close().catch(() => undefined);
+        updateRef.current = null;
+      }
+    };
+  }, []);
+
+  const handleCheck = async () => {
+    replaceUpdate(null);
+    setStatus("checking");
+    setDetails(null);
+    setDownloadedBytes(0);
+    setContentLength(null);
+    setMessage("Checking for updates...");
+
+    try {
+      const nextUpdate = await check();
+      if (!nextUpdate) {
+        setStatus("upToDate");
+        setMessage("You are up to date.");
+        return;
+      }
+
+      replaceUpdate(nextUpdate);
+      setDetails({
+        currentVersion: nextUpdate.currentVersion,
+        date: nextUpdate.date,
+        notes: nextUpdate.body,
+        version: nextUpdate.version,
+      });
+      setStatus("available");
+      setMessage(`LMP ${nextUpdate.version} is available.`);
+    } catch (error) {
+      setStatus("error");
+      setMessage(describeUpdateError(error));
+    }
+  };
+
+  const handleInstall = async () => {
+    const update = updateRef.current;
+    if (!update) {
+      setStatus("error");
+      setMessage("Check for updates again before installing.");
+      return;
+    }
+
+    let received = 0;
+    setStatus("installing");
+    setDownloadedBytes(0);
+    setContentLength(null);
+    setMessage("Downloading update...");
+
+    try {
+      await update.downloadAndInstall((event: DownloadEvent) => {
+        if (event.event === "Started") {
+          received = 0;
+          setDownloadedBytes(0);
+          setContentLength(event.data.contentLength ?? null);
+          return;
+        }
+        if (event.event === "Progress") {
+          received += event.data.chunkLength;
+          setDownloadedBytes(received);
+          return;
+        }
+        if (event.event === "Finished") {
+          setMessage("Installing update...");
+        }
+      });
+
+      setStatus("restarting");
+      setMessage("Update installed. Restarting LMP...");
+      await relaunch();
+    } catch (error) {
+      setStatus("error");
+      setMessage(describeUpdateError(error));
+    }
+  };
+
+  return (
+    <div className="update-panel">
+      <div className={`update-card ${status}`}>
+        <div className="settings-label update-heading">
+          <strong>App updates</strong>
+          <span>Manual checks only</span>
+        </div>
+
+        <p className="update-message">{message}</p>
+
+        {details ? (
+          <div className="update-details">
+            <strong>LMP {details.version}</strong>
+            <span>Current version: {details.currentVersion}</span>
+            {details.date ? <span>{details.date}</span> : null}
+            {details.notes ? <p>{details.notes}</p> : null}
+          </div>
+        ) : null}
+
+        {status === "installing" ? (
+          <div className="update-progress" aria-label="Update download progress">
+            <span style={{ width: `${progressPercent}%` }} />
+            <strong>{progressLabel}</strong>
+          </div>
+        ) : null}
+
+        <div className="update-actions">
+          <button type="button" className="text-button" onClick={handleCheck} disabled={busy}>
+            <RefreshCw size={15} />
+            <span>{status === "checking" ? "Checking..." : "Check for Updates"}</span>
+          </button>
+          <button type="button" className="text-button update-install-button" onClick={handleInstall} disabled={!installReady || busy}>
+            <Download size={15} />
+            <span>{status === "installing" ? "Installing..." : "Download and Install"}</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -774,6 +945,8 @@ export function SettingsPanel({
             )}
           </div>
         ) : null}
+
+        {activeTab === "updates" ? <AppUpdatePanel /> : null}
       </div>
     </div>
   );
