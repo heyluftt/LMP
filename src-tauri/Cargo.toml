@@ -1,6 +1,6 @@
 [package]
 name = "lmp-one"
-version = "0.1.1"
+version = "0.1.2"
 description = "A smooth native-first desktop media player"
 authors = ["heyluftt"]
 edition = "2021"
