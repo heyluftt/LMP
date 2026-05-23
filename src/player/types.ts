@@ -49,6 +49,17 @@ export type ThumbnailCacheStatus = {
   maxByteLen: number;
 };
 
+export type CacheStatus = {
+  fileCount: number;
+  byteLen: number;
+};
+
+export type SettingsCacheStatus = {
+  preview: CacheStatus;
+  preparedVideo: CacheStatus;
+  mediaProbe: CacheStatus;
+};
+
 export type MediaThumbnail = {
   kind: MediaKind | "folder";
   path: string | null;

@@ -2697,6 +2697,13 @@ button.track-card:hover,
   align-items: center;
 }
 
+.settings-cache-list {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 6px;
+  min-width: 0;
+}
+
 .settings-cache-note span {
   grid-column: 1 / 2;
 }
@@ -2712,6 +2719,7 @@ button.track-card:hover,
   background: linear-gradient(135deg, #a4ead0, #edc578);
   font-size: 12px;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .update-panel {
@@ -3318,6 +3326,16 @@ button.track-card:hover,
 
   .settings-switches {
     grid-template-columns: 1fr;
+  }
+
+  .settings-cache-note {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-cache-note button {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
   }
 
   .tracks-panel {

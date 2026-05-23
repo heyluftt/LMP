@@ -202,6 +202,21 @@ struct ThumbnailCacheStatus {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct CacheStatus {
+    file_count: usize,
+    byte_len: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsCacheStatus {
+    preview: CacheStatus,
+    prepared_video: CacheStatus,
+    media_probe: CacheStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MediaThumbnail {
     kind: String,
     path: Option<String>,
@@ -380,6 +395,10 @@ fn main() {
             get_media_thumbnail,
             get_thumbnail_cache_status,
             clear_thumbnail_cache,
+            get_settings_cache_status,
+            clear_preview_cache,
+            clear_prepared_video_cache,
+            clear_media_probe_cache,
             print_file,
             read_word_document,
             read_text_file,
@@ -1279,6 +1298,31 @@ fn clear_thumbnail_cache() -> Result<ThumbnailCacheStatus, String> {
     let cache_dir = thumbnail_cache_dir()?;
     clear_cache_directory(&cache_dir)?;
     thumbnail_cache_status()
+}
+
+#[tauri::command]
+fn get_settings_cache_status() -> Result<SettingsCacheStatus, String> {
+    settings_cache_status()
+}
+
+#[tauri::command]
+fn clear_preview_cache() -> Result<SettingsCacheStatus, String> {
+    clear_cache_directories(&[thumbnail_cache_dir()?, artwork_cache_dir()?])?;
+    settings_cache_status()
+}
+
+#[tauri::command]
+fn clear_prepared_video_cache() -> Result<SettingsCacheStatus, String> {
+    let cache_dir = transmux_cache_dir()?;
+    clear_cache_directory(&cache_dir)?;
+    settings_cache_status()
+}
+
+#[tauri::command]
+fn clear_media_probe_cache() -> Result<SettingsCacheStatus, String> {
+    let cache_dir = probe_cache_dir()?;
+    clear_cache_directory(&cache_dir)?;
+    settings_cache_status()
 }
 
 #[tauri::command]
@@ -3104,6 +3148,38 @@ fn thumbnail_cache_status() -> Result<ThumbnailCacheStatus, String> {
     })
 }
 
+fn settings_cache_status() -> Result<SettingsCacheStatus, String> {
+    Ok(SettingsCacheStatus {
+        preview: combined_cache_status(&[thumbnail_cache_dir()?, artwork_cache_dir()?])?,
+        prepared_video: cache_status_for_dir(&transmux_cache_dir()?)?,
+        media_probe: cache_status_for_dir(&probe_cache_dir()?)?,
+    })
+}
+
+fn cache_status_for_dir(path: &Path) -> Result<CacheStatus, String> {
+    fs::create_dir_all(path)
+        .map_err(|error| format!("Could not create cache directory {}: {error}", path.display()))?;
+    let (file_count, byte_len) = directory_size(path)?;
+    Ok(CacheStatus {
+        file_count,
+        byte_len,
+    })
+}
+
+fn combined_cache_status(paths: &[PathBuf]) -> Result<CacheStatus, String> {
+    let mut file_count = 0usize;
+    let mut byte_len = 0u64;
+    for path in paths {
+        let status = cache_status_for_dir(path)?;
+        file_count += status.file_count;
+        byte_len = byte_len.saturating_add(status.byte_len);
+    }
+    Ok(CacheStatus {
+        file_count,
+        byte_len,
+    })
+}
+
 fn directory_size(path: &Path) -> Result<(usize, u64), String> {
     if !path.exists() {
         return Ok((0, 0));
@@ -3163,6 +3239,13 @@ fn clear_cache_directory(path: &Path) -> Result<(), String> {
         }
     }
 
+    Ok(())
+}
+
+fn clear_cache_directories(paths: &[PathBuf]) -> Result<(), String> {
+    for path in paths {
+        clear_cache_directory(path)?;
+    }
     Ok(())
 }
 

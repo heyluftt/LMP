@@ -126,8 +126,8 @@ import type {
   Moment,
   PlaybackBackendStatus,
   PlayerCommand,
+  SettingsCacheStatus,
   SubtitleFile,
-  ThumbnailCacheStatus,
 } from "./player/types";
 
 type ToastTone = "info" | "error" | "success";
@@ -625,6 +625,7 @@ function App() {
   const [shelfMode, setShelfMode] = useState<MediaShelfMode>(null);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("controls");
   const [updateInstallLocked, setUpdateInstallLocked] = useState(false);
+  const [cacheStatus, setCacheStatus] = useState<SettingsCacheStatus | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
@@ -2403,18 +2404,43 @@ function App() {
     void runCommand({ type: "setVolume", volume: defaultSettings.defaultVolume });
   }, [runCommand, settings]);
 
-  const clearThumbnailCache = useCallback(async () => {
+  const refreshCacheStatus = useCallback(async () => {
+    const status = await invoke<SettingsCacheStatus>("get_settings_cache_status");
+    setCacheStatus(status);
+    return status;
+  }, []);
+
+  useEffect(() => {
+    if (shelfMode !== "settings") {
+      return;
+    }
+    void refreshCacheStatus().catch(() => setCacheStatus(null));
+  }, [refreshCacheStatus, shelfMode]);
+
+  const clearSettingsCache = useCallback(async (command: string, label: string) => {
     try {
-      const status = await invoke<ThumbnailCacheStatus>("clear_thumbnail_cache");
-      const size = formatBytes(status.byteLen);
-      showToast(
-        `Thumbnail cache cleared${size ? ` (${size})` : ""}.`,
-        "success",
-      );
+      const status = await invoke<SettingsCacheStatus>(command);
+      setCacheStatus(status);
+      showToast(`${label} cleared.`, "success");
     } catch (error) {
       showToast(compactError(error), "error");
     }
   }, [showToast]);
+
+  const clearPreviewCache = useCallback(
+    () => clearSettingsCache("clear_preview_cache", "Preview cache"),
+    [clearSettingsCache],
+  );
+
+  const clearPreparedVideoCache = useCallback(
+    () => clearSettingsCache("clear_prepared_video_cache", "Prepared video cache"),
+    [clearSettingsCache],
+  );
+
+  const clearMediaProbeCache = useCallback(
+    () => clearSettingsCache("clear_media_probe_cache", "Media probe cache"),
+    [clearSettingsCache],
+  );
 
   const setPlayerVolume = useCallback(
     (value: number) => {
@@ -4809,6 +4835,7 @@ function App() {
         {hasMedia && shelfMode === "settings" ? (
           <SettingsPanel
             activeTab={activeSettingsTab}
+            cacheStatus={cacheStatus}
             currentPath={currentPath}
             fallbackStatusLabel={fallbackStatusLabel}
             gstreamerAvailable={Boolean(gstreamerBackend?.available)}
@@ -4817,7 +4844,9 @@ function App() {
             isImage={isImage}
             isStaticViewer={isStaticViewer}
             isText={isText}
-            onClearThumbnailCache={() => void clearThumbnailCache()}
+            onClearMediaProbeCache={() => void clearMediaProbeCache()}
+            onClearPreparedVideoCache={() => void clearPreparedVideoCache()}
+            onClearPreviewCache={() => void clearPreviewCache()}
             onClose={closeShelf}
             onOpenCurrentWithGstreamer={() => void openCurrentWithGstreamer()}
             onPatchSettings={patchSettings}

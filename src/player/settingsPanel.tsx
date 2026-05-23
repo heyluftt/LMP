@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 
+import { formatBytes } from "../lib/mediaFormat";
 import type { MediaKind } from "../lib/playerBrain";
 import type { PlayerSettings } from "./settings";
-import type { PlaybackBackendStatus } from "./types";
+import type { CacheStatus, PlaybackBackendStatus, SettingsCacheStatus } from "./types";
 
 export type SettingsTab =
   | "controls"
@@ -84,7 +85,10 @@ type SettingsPanelProps = {
   isImage: boolean;
   isStaticViewer: boolean;
   isText: boolean;
-  onClearThumbnailCache: () => void;
+  cacheStatus: SettingsCacheStatus | null;
+  onClearMediaProbeCache: () => void;
+  onClearPreparedVideoCache: () => void;
+  onClearPreviewCache: () => void;
   onClose: () => void;
   onOpenCurrentWithGstreamer: () => void;
   onPatchSettings: (patch: Partial<PlayerSettings>) => void;
@@ -141,6 +145,47 @@ function SettingStepper({
           <Plus size={14} />
         </button>
         <small>{unit}</small>
+      </div>
+    </div>
+  );
+}
+
+function cacheSizeLabel(status: CacheStatus | null | undefined) {
+  if (!status) {
+    return "Checking size...";
+  }
+  return `${formatBytes(status.byteLen)} · ${status.fileCount} ${status.fileCount === 1 ? "file" : "files"}`;
+}
+
+function CacheSettingsBlock({
+  cacheStatus,
+  onClearMediaProbeCache,
+  onClearPreparedVideoCache,
+  onClearPreviewCache,
+}: {
+  cacheStatus: SettingsCacheStatus | null;
+  onClearMediaProbeCache: () => void;
+  onClearPreparedVideoCache: () => void;
+  onClearPreviewCache: () => void;
+}) {
+  return (
+    <div className="settings-cache-list">
+      <div className="viewer-note settings-cache-note">
+        <strong>Preview cache</strong>
+        <span>Thumbnails and audio artwork · {cacheSizeLabel(cacheStatus?.preview)}</span>
+        <button type="button" onClick={onClearPreviewCache}>Clear preview cache</button>
+      </div>
+
+      <div className="viewer-note settings-cache-note">
+        <strong>Prepared video cache</strong>
+        <span>Native playback remux files · {cacheSizeLabel(cacheStatus?.preparedVideo)}</span>
+        <button type="button" onClick={onClearPreparedVideoCache}>Clear prepared video cache</button>
+      </div>
+
+      <div className="viewer-note settings-cache-note">
+        <strong>Media probe cache</strong>
+        <span>FFprobe inspection results · {cacheSizeLabel(cacheStatus?.mediaProbe)}</span>
+        <button type="button" onClick={onClearMediaProbeCache}>Clear media probe cache</button>
       </div>
     </div>
   );
@@ -326,6 +371,7 @@ function AppUpdatePanel({
 
 export function SettingsPanel({
   activeTab,
+  cacheStatus,
   currentPath,
   fallbackStatusLabel,
   gstreamerAvailable,
@@ -334,7 +380,9 @@ export function SettingsPanel({
   isImage,
   isStaticViewer,
   isText,
-  onClearThumbnailCache,
+  onClearMediaProbeCache,
+  onClearPreparedVideoCache,
+  onClearPreviewCache,
   onClose,
   onOpenCurrentWithGstreamer,
   onPatchSettings,
@@ -639,11 +687,12 @@ export function SettingsPanel({
               <span>New audio files replace the current song unless multiple audio windows are enabled.</span>
             </div>
 
-            <div className="viewer-note settings-cache-note">
-              <strong>Thumbnail cache</strong>
-              <span>Cover-art and media previews share the same cache root.</span>
-              <button type="button" onClick={onClearThumbnailCache}>Clear thumbnail cache</button>
-            </div>
+            <CacheSettingsBlock
+              cacheStatus={cacheStatus}
+              onClearMediaProbeCache={onClearMediaProbeCache}
+              onClearPreparedVideoCache={onClearPreparedVideoCache}
+              onClearPreviewCache={onClearPreviewCache}
+            />
           </div>
         ) : null}
 
@@ -692,11 +741,12 @@ export function SettingsPanel({
               ))}
             </div>
 
-            <div className="viewer-note settings-cache-note">
-              <strong>Thumbnail cache</strong>
-              <span>Reserved for LMP previews under AppData/LMP/cache/thumbnails.</span>
-              <button type="button" onClick={onClearThumbnailCache}>Clear thumbnail cache</button>
-            </div>
+            <CacheSettingsBlock
+              cacheStatus={cacheStatus}
+              onClearMediaProbeCache={onClearMediaProbeCache}
+              onClearPreparedVideoCache={onClearPreparedVideoCache}
+              onClearPreviewCache={onClearPreviewCache}
+            />
           </div>
         ) : null}
 
@@ -751,11 +801,12 @@ export function SettingsPanel({
               </span>
             </div>
 
-            <div className="viewer-note settings-cache-note">
-              <strong>Thumbnail cache</strong>
-              <span>Clears LMP-generated previews without touching source files.</span>
-              <button type="button" onClick={onClearThumbnailCache}>Clear thumbnail cache</button>
-            </div>
+            <CacheSettingsBlock
+              cacheStatus={cacheStatus}
+              onClearMediaProbeCache={onClearMediaProbeCache}
+              onClearPreparedVideoCache={onClearPreparedVideoCache}
+              onClearPreviewCache={onClearPreviewCache}
+            />
           </div>
         ) : null}
 
