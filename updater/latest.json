@@ -1,0 +1,11 @@
+{
+    "version":  "0.1.3",
+    "notes":  "# LMP v0.1.3 Alpha\n\nPatch alpha after v0.1.2-alpha.\n\n## Changes\n\n- First alpha with in-app updater support.\n- Adds updater UI in Settings.\n- Adds signed updater artifacts and latest.json manifest flow.\n- Improves cache controls and cache visibility.\n- Adds media inspection probe cache.\n- Polishes settings/update UI and timeline focus styling.\n\n## Known Limitations\n\n- Still an unsigned alpha build.\n- Native playback depends on Windows/WebView codec support.\n- Terminal execution uses saved files, not unsaved drafts.\n- Shell scripts require bash in PATH.\n- DOC/DOCX handling extracts editable text copies; it is not full Word editing.\n\n## Update Note\n\nv0.1.3 is the first updater-capable build. In-app updates can be tested with a later release such as v0.1.4.",
+    "pub_date":  "2026-05-23T17:04:39Z",
+    "platforms":  {
+                      "windows-x86_64":  {
+                                             "url":  "https://github.com/heyluftt/LMP/releases/download/v0.1.3-alpha/LMP_0.1.3_x64-setup.exe",
+                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRcGFaTTA4UUQ0cXFHTXl2Q0JWYzdEM2dFQ0VMTlI4TVdaM2hwczBOeHp5Sm43bktFd0Z4YlZuaG16dVA3c2RnNENmNHdJbUhOajlyOHMxbndEcFl4cEZ6Q0VvQUJabncwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc5NTU1NzQzCWZpbGU6TE1QXzAuMS4zX3g2NC1zZXR1cC5leGUKMWZpbm1ZTkowYTc2T1daVlI0Z1BheDVEeWYydnB0cDZhSDlTck1qQmo5dXZ2L2l2RTdtVDRra1NYWDl1N0FLTy9WOXUvMWN4OWh0eEh4NEhXTTlFQkE9PQo="
+                                         }
+                  }
+}
