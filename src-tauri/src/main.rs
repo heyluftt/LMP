@@ -6,7 +6,7 @@ mod word_document;
 mod terminal;
 
 use paths::lmp_data_dir;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     env, fs,
@@ -73,6 +73,8 @@ const SUPPORTED_MEDIA_EXTENSIONS: &[&str] = &[
 ];
 
 const THUMBNAIL_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const PROBE_CACHE_SCHEMA_VERSION: u32 = 1;
+const PROBE_FORMAT_VERSION: u32 = 1;
 static THUMBNAIL_GENERATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 const TEXT_FILE_EXTENSIONS: &[&str] = &[
@@ -168,18 +170,25 @@ struct GstreamerPlaybackSession {
     started_at: Option<u64>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct MediaInspectionItem {
     label: String,
     value: String,
     detail: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct MediaInspection {
     source: String,
     summary: Vec<MediaInspectionItem>,
     details: String,
+}
+
+#[derive(Deserialize, Serialize)]
+struct CachedMediaInspection {
+    schema_version: u32,
+    probe_format_version: u32,
+    inspection: MediaInspection,
 }
 
 #[derive(Serialize)]
@@ -3026,6 +3035,61 @@ fn thumbnail_cache_dir() -> Result<PathBuf, String> {
     Ok(lmp_data_dir()?.join("cache").join("thumbnails"))
 }
 
+fn probe_cache_dir() -> Result<PathBuf, String> {
+    Ok(lmp_data_dir()?.join("cache").join("probe"))
+}
+
+fn probe_cache_file_path(path: &Path, metadata: &fs::Metadata) -> Result<PathBuf, String> {
+    let cache_dir = probe_cache_dir()?;
+    fs::create_dir_all(&cache_dir)
+        .map_err(|error| format!("Could not create probe cache: {error}"))?;
+    Ok(cache_dir.join(format!("{}.json", media_probe_cache_key(path, metadata))))
+}
+
+fn read_probe_cache(path: &Path) -> Option<MediaInspection> {
+    if let Ok(content) = fs::read_to_string(path) {
+        if let Ok(cached) = serde_json::from_str::<CachedMediaInspection>(&content) {
+            if cached.schema_version == PROBE_CACHE_SCHEMA_VERSION
+                && cached.probe_format_version == PROBE_FORMAT_VERSION
+            {
+                return Some(cached.inspection);
+            }
+        }
+    }
+    let _ = fs::remove_file(path);
+    None
+}
+
+fn write_probe_cache(path: &Path, inspection: &MediaInspection) -> Result<(), String> {
+    let cached = CachedMediaInspection {
+        schema_version: PROBE_CACHE_SCHEMA_VERSION,
+        probe_format_version: PROBE_FORMAT_VERSION,
+        inspection: MediaInspection {
+            source: inspection.source.clone(),
+            summary: inspection
+                .summary
+                .iter()
+                .map(|item| MediaInspectionItem {
+                    label: item.label.clone(),
+                    value: item.value.clone(),
+                    detail: item.detail.clone(),
+                })
+                .collect(),
+            details: inspection.details.clone(),
+        },
+    };
+    let content = serde_json::to_string(&cached)
+        .map_err(|error| format!("Could not encode probe cache: {error}"))?;
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, content)
+        .map_err(|error| format!("Could not write probe cache: {error}"))?;
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+    fs::rename(&temp_path, path).map_err(|error| format!("Could not save probe cache: {error}"))?;
+    Ok(())
+}
+
 fn thumbnail_cache_status() -> Result<ThumbnailCacheStatus, String> {
     let cache_dir = thumbnail_cache_dir()?;
     fs::create_dir_all(&cache_dir)
@@ -3115,6 +3179,36 @@ fn media_cache_key(path: &Path, metadata: &fs::Metadata) -> String {
     }
 
     format!("{:016x}", hasher.finish())
+}
+
+fn media_probe_cache_key(path: &Path, metadata: &fs::Metadata) -> String {
+    let mut hasher = DefaultHasher::new();
+    normalized_cache_path(path).hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    PROBE_CACHE_SCHEMA_VERSION.hash(&mut hasher);
+    PROBE_FORMAT_VERSION.hash(&mut hasher);
+
+    if let Ok(modified) = metadata.modified() {
+        if let Ok(age) = modified.duration_since(UNIX_EPOCH) {
+            age.as_secs().hash(&mut hasher);
+            age.subsec_nanos().hash(&mut hasher);
+        }
+    }
+
+    format!("{:016x}", hasher.finish())
+}
+
+fn normalized_cache_path(path: &Path) -> String {
+    let normalized = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let value = normalized.to_string_lossy().replace('\\', "/");
+    #[cfg(windows)]
+    {
+        value.to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        value
+    }
 }
 
 fn safe_file_stem(path: &Path) -> String {
@@ -3240,8 +3334,18 @@ fn inspect_media_sync(path: String) -> Result<MediaInspection, String> {
     if !is_supported_media_path(&media) {
         return Err(format!("Unsupported file type: {}", media.display()));
     }
+    let metadata = media
+        .metadata()
+        .map_err(|error| format!("Could not read file metadata: {error}"))?;
 
     if let Some(ffprobe) = find_tool("ffprobe") {
+        let cache_path = probe_cache_file_path(&media, &metadata).ok();
+        if let Some(cache_path) = cache_path.as_ref() {
+            if let Some(inspection) = read_probe_cache(cache_path) {
+                return Ok(inspection);
+            }
+        }
+
         let path_arg = media.display().to_string();
         let output = command_output_text(
             &ffprobe,
@@ -3258,17 +3362,18 @@ fn inspect_media_sync(path: String) -> Result<MediaInspection, String> {
         );
 
         if let Ok(details) = output {
-            return Ok(MediaInspection {
+            let inspection = MediaInspection {
                 source: "FFprobe".to_string(),
                 summary: summarize_ffprobe_compact(&details, &media),
                 details: compact_tool_output(&details, 4600),
-            });
+            };
+            if let Some(cache_path) = cache_path.as_ref() {
+                let _ = write_probe_cache(cache_path, &inspection);
+            }
+            return Ok(inspection);
         }
     }
 
-    let metadata = media
-        .metadata()
-        .map_err(|error| format!("Could not read file metadata: {error}"))?;
     let summary = vec![
         MediaInspectionItem {
             label: "Kind".to_string(),
