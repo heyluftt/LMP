@@ -1,10 +1,12 @@
 # LMP Project Status
 
-Last updated: 2026-05-20
+Last updated: 2026-05-24
 
 ## Overview
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust. It uses platform and helper tools for low-level media and document work, while the project code focuses on the app shell, routing, controls, viewer state, Windows integration, and UI.
+
+Current public alpha: `v0.1.3-alpha`.
 
 ## Current Modules
 
@@ -15,6 +17,8 @@ LMP is a Windows-first media player and file viewer suite built with Tauri, Reac
 - Text/code: CodeMirror 6 editor with syntax highlighting, search/replace, save/save-as, revert, undo/redo, word wrap, line numbers, tab/font settings, and line/column status.
 - Integrated terminal: optional terminal for saved text/code files, disabled by default.
 - Word documents: DOCX/DOC-style files open as editable extracted text copies. Original documents remain unchanged.
+- Updates: Settings-based updater UI with signed update manifest support for later alpha builds.
+- Cache controls: preview, prepared video, and media probe caches can be reviewed and cleared from Settings.
 
 ## Architecture
 
@@ -38,7 +42,7 @@ Important files:
 
 ## Helper Tools
 
-Release packages can bundle FFmpeg and FFprobe from `src-tauri/binaries/tools` for metadata, artwork, thumbnails, remux helpers, and accurate clip export. The large `.exe` files are local release resources and are not committed to the source repository.
+Release packages can bundle FFmpeg and FFprobe from `src-tauri/binaries/tools` for metadata, artwork, thumbnails, remux helpers, and accurate clip export. The large `.exe` files are packaging resources and are not committed to the source repository.
 
 GStreamer is optional. LMP can detect an installed runtime, but it is not a complete playback backend in this alpha.
 
@@ -57,12 +61,11 @@ GStreamer is optional. LMP can detect an installed runtime, but it is not a comp
 - GStreamer fallback is not yet an embedded playback backend.
 - DOC/DOCX handling is extraction-based and does not round-trip Word formatting.
 - PDF printing depends on the WebView/system print path and should be tested with real documents and printers.
-- Automated regression coverage is still limited; alpha validation relies on the smoke checklist and manual testing.
+- Automated regression coverage is still limited; alpha validation relies on the smoke checklist and practical testing.
 
 ## Source and Release Policy
 
-- No GitHub Release has been published yet.
-- When `v0.1.0-alpha` is available, users should download the attached release assets.
+- Users should download the latest Windows package from GitHub Releases.
 - Source commits should not include installers, packaged ZIPs, `dist/`, Tauri `target/`, smoke media, logs, caches, local release artifacts, or FFmpeg/FFprobe `.exe` files.
 - `src-tauri/binaries/tools/LICENSE-FFmpeg.txt` stays in the repository to document the helper license.
 - Packaged installers and sendable ZIPs belong in GitHub Releases.

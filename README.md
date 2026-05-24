@@ -2,7 +2,7 @@
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust.
 
-When `v0.1.0-alpha` is available, use the files attached to the GitHub Release. The first alpha will be a Windows x64 build and will be unsigned, so Windows SmartScreen may show a warning during download or installation.
+Current alpha: `v0.1.3-alpha`. Download the latest Windows package from the GitHub Releases page. Alpha builds are unsigned, so Windows SmartScreen may show a warning during download or installation.
 
 ## What It Does
 
@@ -27,6 +27,7 @@ The first playback path uses the Windows/WebView media stack. LMP does not bundl
 - Text/code editor with CodeMirror 6, syntax highlighting, search/replace, save/save-as, revert, undo/redo, line numbers, word wrap, and editor settings.
 - Optional integrated terminal for saved text/code files, disabled by default.
 - DOC/DOCX files open as extracted editable text. The original document is not modified.
+- In-app update support starts with `v0.1.3-alpha` for later alpha updates.
 - Windows file associations and separate fallback icons for video, audio, image, PDF, text/code, and Word/document files.
 
 ## Helpers and Limits
@@ -65,6 +66,8 @@ npm.cmd run verify:windows
 
 - [Project status](docs/PROJECT_STATUS.md)
 - [Alpha smoke checklist](docs/ALPHA_SMOKE_CHECKLIST.md)
+- [v0.1.3 alpha release notes](RELEASE_NOTES_v0.1.3-alpha.md)
+- [v0.1.2 alpha release notes](RELEASE_NOTES_v0.1.2-alpha.md)
 - [v0.1.0 alpha release notes](docs/RELEASE_NOTES_v0.1.0-alpha.md)
 
 Release installers, packaged ZIPs, build output, smoke media, caches, and local helper binaries are intentionally not committed. Packaged installers belong in GitHub Releases.

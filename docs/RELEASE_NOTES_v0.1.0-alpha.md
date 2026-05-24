@@ -1,6 +1,6 @@
 # LMP v0.1.0 Alpha
 
-Prepared release notes for the first public alpha of LMP. The GitHub Release has not been published yet.
+Release notes for the first public alpha of LMP.
 
 ## What is LMP?
 
@@ -57,7 +57,7 @@ GStreamer is not bundled. LMP can detect a separately installed GStreamer runtim
 
 ## Release Assets
 
-When the release is published, use the files attached to the GitHub Release. Expected user-facing files:
+The GitHub Release contains the user-facing Windows package and supporting text files:
 
 - `LMP_0.1.0_x64-setup.exe`
 - `README-FIRST.txt` or `README.txt`

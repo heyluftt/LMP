@@ -1,6 +1,6 @@
 # LMP Alpha Smoke Checklist
 
-Quick regression checks for LMP alpha builds and larger changes.
+Quick regression checks for LMP alpha builds and larger changes. Current public alpha: `v0.1.3-alpha`.
 
 ## Build Gate
 
@@ -37,7 +37,7 @@ Image/GIF:
 
 PDF/Document:
 
-- Opens PDF and keeps document scrolling internal to the viewer.
+- Opens PDF and keeps document scrolling inside the viewer.
 - Page next/previous, page overview, zoom, fit, reset and print dialog work.
 - Print preview does not include LMP controls/chrome.
 - DOCX opens directly as an editable extracted text copy.
@@ -52,6 +52,8 @@ Text:
 - Unsaved-change close/open guard appears when expected.
 - Plain-text metadata stays understandable for normal users, while line/column status remains visible.
 - Optional integrated terminal is off by default, can be enabled, runs saved files, and handles missing shell/runtime messages cleanly.
+- Settings update panel can check for updates without blocking normal Settings use.
+- Cache controls show preview, prepared video, and media probe cache actions clearly.
 
 Shared:
 
