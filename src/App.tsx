@@ -8,6 +8,7 @@ import {
   FileVideo,
   FolderOpen,
   ImageIcon,
+  Scan,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -76,6 +77,11 @@ import { ResumeController } from "./player/resumeController";
 import { defaultSettings, readSettings, updateSettings } from "./player/settings";
 import type { PlayerSettings } from "./player/settings";
 import { SettingsPanel, settingsTabsFor, type SettingsTab } from "./player/settingsPanel";
+import {
+  nextVideoFitMode,
+  videoFitLabel,
+  videoFitObjectFit,
+} from "./player/videoFit";
 import {
   clampImageZoom,
   defaultImageView,
@@ -502,13 +508,13 @@ function canTryRemuxFallback(path: string | null) {
     return false;
   }
 
-  return ["ts", "mts", "m2ts"].includes(mediaExtension(path));
+  return ["ts", "mts", "m2ts", "mp4", "m4v", "mov"].includes(mediaExtension(path));
 }
 
 function describePlaybackProblem(error: unknown, media?: HTMLMediaElement, path?: string | null) {
   if (isUnsupportedSourceError(error, media)) {
     if (canTryRemuxFallback(path ?? null)) {
-      return "This TS file is recognized, but the native WebView engine cannot play its container/codec directly yet.";
+      return "This media file is recognized, but the native WebView engine cannot play its container/codec directly yet.";
     }
 
     return "This file is recognized by LMP, but the native WebView engine cannot play its container/codec yet.";
@@ -817,7 +823,7 @@ function App() {
     hasMedia &&
     settings.autoHideControls &&
     !controlsVisible &&
-    (isStaticViewer || !paused) &&
+    (isVideo || isStaticViewer || !paused) &&
     !controlsPinned &&
     !toolsOpen;
   const playerViewClass = [
@@ -839,6 +845,13 @@ function App() {
       transform: `translate(${imageView.offsetX}px, ${imageView.offsetY}px) rotate(${imageView.rotation}deg) scale(${imageView.zoom})`,
     }),
     [imageView],
+  );
+  const activeVideoFitLabel = videoFitLabel(settings.videoFitMode);
+  const videoSurfaceStyle = useMemo<CSSProperties>(
+    () => ({
+      objectFit: videoFitObjectFit(miniPlayerActive ? "contain" : settings.videoFitMode),
+    }),
+    [miniPlayerActive, settings.videoFitMode],
   );
   const overviewInspectionItems = useMemo(
     () => mediaInspection?.summary.filter((item) => !isStreamInspectionItem(item)) ?? [],
@@ -1779,7 +1792,7 @@ function App() {
           const prepToast = window.setTimeout(
             () => {
               if (loadToken === loadTokenRef.current && activePlaybackPathRef.current === media.path) {
-                showToast("Preparing TS for native playback...", "info");
+                showToast("Preparing media for native playback...", "info");
               }
             },
             650,
@@ -1798,7 +1811,7 @@ function App() {
             }
             revealCurrentWindow();
             showToast(
-              `TS is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
+              `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
                 fallbackError,
               )}`,
               "error",
@@ -2141,7 +2154,7 @@ function App() {
 
       remuxFallbackRef.current = { path, status: "running" };
       setPaused(true);
-      showToast("Preparing TS for native playback...", "info");
+      showToast("Preparing media for native playback...", "info");
 
       try {
         const remuxed = await invoke<MediaFile>("transmux_for_native", { path });
@@ -2156,12 +2169,12 @@ function App() {
         }
         setSourceUrl(convertFileSrc(remuxed.path));
         scheduleWindowRevealFallback(path, loadTokenRef.current, 1400);
-        showToast("TS remuxed without re-encoding.", "success");
+        showToast("Media remuxed without re-encoding.", "success");
       } catch (fallbackError) {
         remuxFallbackRef.current = { path, status: "done" };
         revealCurrentWindow();
         showToast(
-          `TS is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
+          `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
             fallbackError,
           )}`,
           "error",
@@ -2379,6 +2392,10 @@ function App() {
   const patchSettings = useCallback((patch: Partial<PlayerSettings>) => {
     setSettings((current) => updateSettings(current, patch));
   }, []);
+
+  const cycleVideoFit = useCallback(() => {
+    patchSettings({ videoFitMode: nextVideoFitMode(settings.videoFitMode) });
+  }, [patchSettings, settings.videoFitMode]);
 
   const toggleMiniPlayer = useCallback(() => {
     if (!supportsMiniPlayer) {
@@ -3416,7 +3433,7 @@ function App() {
     if (
       !hasMedia ||
       !settings.autoHideControls ||
-      (paused && !isStaticViewer) ||
+      (paused && !isStaticViewer && !isVideo) ||
       controlsPinned ||
       toolsOpen
     ) {
@@ -3439,6 +3456,7 @@ function App() {
     controlsVisible,
     hasMedia,
     isStaticViewer,
+    isVideo,
     paused,
     settings.autoHideControls,
     settings.controlsHideDelaySeconds,
@@ -4596,6 +4614,7 @@ function App() {
             <video
               ref={mediaRef}
               className={`media-surface ${isAudio ? "audio-only" : ""}`}
+              style={videoSurfaceStyle}
               playsInline
               onDurationChange={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
@@ -4671,6 +4690,19 @@ function App() {
                 />
               ) : null}
             </video>
+          ) : null}
+
+          {isVideo ? (
+            <div className="video-overlay-header" data-wheel-volume="ignore">
+              <div className="video-overlay-title">
+                <strong>{currentTitle}</strong>
+                <span>{metaLabel}</span>
+              </div>
+              <button type="button" onClick={cycleVideoFit} title="Cycle video fit mode">
+                <Scan size={15} />
+                <span>{activeVideoFitLabel}</span>
+              </button>
+            </div>
           ) : null}
 
           {isAudio ? (

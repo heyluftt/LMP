@@ -5,6 +5,7 @@ import "./styles.css";
 import "./styles/polish.css";
 import "./styles/shelves.css";
 import "./styles/viewers.css";
+import "./styles/video-player.css";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

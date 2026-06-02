@@ -1,3 +1,5 @@
+import { sanitizeVideoFitMode, type VideoFitMode } from "./videoFit";
+
 export type PlayerSettings = {
   fallbackEngine: "auto" | "gstreamer" | "off";
   seekSeconds: number;
@@ -13,6 +15,7 @@ export type PlayerSettings = {
   minimalControls: boolean;
   autoQueueFolder: boolean;
   audioMultiWindow: boolean;
+  videoFitMode: VideoFitMode;
   textFontSize: number;
   textFontFamily: "mono" | "system" | "serif" | "sans";
   textWordExtractionFormat: "structured" | "plain";
@@ -43,6 +46,7 @@ export const defaultSettings: PlayerSettings = {
   minimalControls: false,
   autoQueueFolder: true,
   audioMultiWindow: false,
+  videoFitMode: "auto",
   textFontSize: 13,
   textFontFamily: "mono",
   textWordExtractionFormat: "structured",
@@ -132,6 +136,7 @@ export function sanitizeSettings(value: Partial<PlayerSettings>): PlayerSettings
     minimalControls: sanitizeBoolean(value.minimalControls, defaultSettings.minimalControls),
     autoQueueFolder: sanitizeBoolean(value.autoQueueFolder, defaultSettings.autoQueueFolder),
     audioMultiWindow: sanitizeBoolean(value.audioMultiWindow, defaultSettings.audioMultiWindow),
+    videoFitMode: sanitizeVideoFitMode(value.videoFitMode),
     textFontSize: sanitizeNumber(value.textFontSize, defaultSettings.textFontSize, 10, 24),
     textFontFamily: sanitizeTextFontFamily(value.textFontFamily),
     textWordExtractionFormat: sanitizeTextWordExtractionFormat(value.textWordExtractionFormat),

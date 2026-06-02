@@ -2511,8 +2511,14 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
     }
 
     let extension = media_extension(&media);
-    if !matches!(extension.as_str(), "ts" | "mts" | "m2ts") {
-        return Err("The native remux fallback is only enabled for TS/MTS/M2TS files.".to_string());
+    if !matches!(
+        extension.as_str(),
+        "ts" | "mts" | "m2ts" | "mp4" | "m4v" | "mov"
+    ) {
+        return Err(
+            "The native remux fallback is only enabled for video containers LMP can safely remux."
+                .to_string(),
+        );
     }
 
     let metadata = media
@@ -2549,6 +2555,8 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
         .arg("0:v:0?")
         .arg("-map")
         .arg("0:a:0?")
+        .arg("-sn")
+        .arg("-dn")
         .arg("-c")
         .arg("copy")
         .arg("-movflags")

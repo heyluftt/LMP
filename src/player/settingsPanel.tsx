@@ -7,6 +7,7 @@ import { formatBytes } from "../lib/mediaFormat";
 import type { MediaKind } from "../lib/playerBrain";
 import type { PlayerSettings } from "./settings";
 import type { CacheStatus, PlaybackBackendStatus, SettingsCacheStatus } from "./types";
+import { videoFitModes } from "./videoFit";
 
 export type SettingsTab =
   | "controls"
@@ -490,6 +491,25 @@ export function SettingsPanel({
 
         {activeTab === "playback" ? (
           <div className="settings-grid compact-settings-grid">
+            <div className="video-fit-setting">
+              <div className="settings-label">
+                <strong>Video fit</strong>
+                <span>How video fills the player surface</span>
+              </div>
+              <div className="video-fit-choices" role="group" aria-label="Video fit mode">
+                {videoFitModes.map((mode) => (
+                  <button
+                    type="button"
+                    key={mode.id}
+                    className={settings.videoFitMode === mode.id ? "active" : ""}
+                    onClick={() => onPatchSettings({ videoFitMode: mode.id })}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <SettingStepper
               label="Default volume"
               description="New sessions"
