@@ -33,11 +33,12 @@ export function WindowChrome({
     if (closingRef.current) {
       return;
     }
+    closingRef.current = true;
 
     if ((await onRequestClose?.()) === false) {
+      closingRef.current = false;
       return;
     }
-    closingRef.current = true;
 
     void invoke("close_current_window").catch(() => {
       void destroyWindow();

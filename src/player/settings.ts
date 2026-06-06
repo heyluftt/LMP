@@ -1,5 +1,3 @@
-import { sanitizeVideoFitMode, type VideoFitMode } from "./videoFit";
-
 export type PlayerSettings = {
   fallbackEngine: "auto" | "gstreamer" | "off";
   seekSeconds: number;
@@ -15,7 +13,8 @@ export type PlayerSettings = {
   minimalControls: boolean;
   autoQueueFolder: boolean;
   audioMultiWindow: boolean;
-  videoFitMode: VideoFitMode;
+  centerVideoWindowAfterResize: boolean;
+  videoFitMode: "cover";
   textFontSize: number;
   textFontFamily: "mono" | "system" | "serif" | "sans";
   textWordExtractionFormat: "structured" | "plain";
@@ -46,7 +45,8 @@ export const defaultSettings: PlayerSettings = {
   minimalControls: false,
   autoQueueFolder: true,
   audioMultiWindow: false,
-  videoFitMode: "auto",
+  centerVideoWindowAfterResize: false,
+  videoFitMode: "cover",
   textFontSize: 13,
   textFontFamily: "mono",
   textWordExtractionFormat: "structured",
@@ -136,7 +136,11 @@ export function sanitizeSettings(value: Partial<PlayerSettings>): PlayerSettings
     minimalControls: sanitizeBoolean(value.minimalControls, defaultSettings.minimalControls),
     autoQueueFolder: sanitizeBoolean(value.autoQueueFolder, defaultSettings.autoQueueFolder),
     audioMultiWindow: sanitizeBoolean(value.audioMultiWindow, defaultSettings.audioMultiWindow),
-    videoFitMode: sanitizeVideoFitMode(value.videoFitMode),
+    centerVideoWindowAfterResize: sanitizeBoolean(
+      value.centerVideoWindowAfterResize,
+      defaultSettings.centerVideoWindowAfterResize,
+    ),
+    videoFitMode: "cover",
     textFontSize: sanitizeNumber(value.textFontSize, defaultSettings.textFontSize, 10, 24),
     textFontFamily: sanitizeTextFontFamily(value.textFontFamily),
     textWordExtractionFormat: sanitizeTextWordExtractionFormat(value.textWordExtractionFormat),
@@ -170,9 +174,16 @@ export function readSettings(): PlayerSettings {
       return defaultSettings;
     }
 
-    const parsed = JSON.parse(stored.value) as Partial<PlayerSettings>;
+    const parsed = JSON.parse(stored.value) as Partial<PlayerSettings> & {
+      videoFitModeVersion?: unknown;
+    };
     const settings = sanitizeSettings(parsed);
-    if (stored.key !== settingsKey) {
+    if (
+      stored.key !== settingsKey ||
+      parsed.centerVideoWindowAfterResize !== settings.centerVideoWindowAfterResize ||
+      parsed.videoFitMode !== settings.videoFitMode ||
+      "videoFitModeVersion" in parsed
+    ) {
       saveSettings(settings);
     }
     return settings;

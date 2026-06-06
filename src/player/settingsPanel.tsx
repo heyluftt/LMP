@@ -7,7 +7,6 @@ import { formatBytes } from "../lib/mediaFormat";
 import type { MediaKind } from "../lib/playerBrain";
 import type { PlayerSettings } from "./settings";
 import type { CacheStatus, PlaybackBackendStatus, SettingsCacheStatus } from "./types";
-import { videoFitModes } from "./videoFit";
 
 export type SettingsTab =
   | "controls"
@@ -155,7 +154,7 @@ function cacheSizeLabel(status: CacheStatus | null | undefined) {
   if (!status) {
     return "Checking size...";
   }
-  return `${formatBytes(status.byteLen)} · ${status.fileCount} ${status.fileCount === 1 ? "file" : "files"}`;
+  return `${formatBytes(status.byteLen)} - ${status.fileCount} ${status.fileCount === 1 ? "file" : "files"}`;
 }
 
 function CacheSettingsBlock({
@@ -173,19 +172,19 @@ function CacheSettingsBlock({
     <div className="settings-cache-list">
       <div className="viewer-note settings-cache-note">
         <strong>Preview cache</strong>
-        <span>Thumbnails and audio artwork · {cacheSizeLabel(cacheStatus?.preview)}</span>
+        <span>Thumbnails and audio artwork - {cacheSizeLabel(cacheStatus?.preview)}</span>
         <button type="button" onClick={onClearPreviewCache}>Clear preview cache</button>
       </div>
 
       <div className="viewer-note settings-cache-note">
         <strong>Prepared video cache</strong>
-        <span>Native playback remux files · {cacheSizeLabel(cacheStatus?.preparedVideo)}</span>
+        <span>Native playback remux files - {cacheSizeLabel(cacheStatus?.preparedVideo)}</span>
         <button type="button" onClick={onClearPreparedVideoCache}>Clear prepared video cache</button>
       </div>
 
       <div className="viewer-note settings-cache-note">
         <strong>Media probe cache</strong>
-        <span>FFprobe inspection results · {cacheSizeLabel(cacheStatus?.mediaProbe)}</span>
+        <span>FFprobe inspection results - {cacheSizeLabel(cacheStatus?.mediaProbe)}</span>
         <button type="button" onClick={onClearMediaProbeCache}>Clear media probe cache</button>
       </div>
     </div>
@@ -208,7 +207,7 @@ function describeUpdateError(error: unknown) {
 
 function formatUpdateProgress(downloadedBytes: number, contentLength: number | null) {
   if (!contentLength) {
-    return `${Math.round(downloadedBytes / 1024 / 1024)} MB`;
+    return formatBytes(downloadedBytes) || "Starting";
   }
   return `${Math.round((downloadedBytes / contentLength) * 100)}%`;
 }
@@ -491,25 +490,6 @@ export function SettingsPanel({
 
         {activeTab === "playback" ? (
           <div className="settings-grid compact-settings-grid">
-            <div className="video-fit-setting">
-              <div className="settings-label">
-                <strong>Video fit</strong>
-                <span>How video fills the player surface</span>
-              </div>
-              <div className="video-fit-choices" role="group" aria-label="Video fit mode">
-                {videoFitModes.map((mode) => (
-                  <button
-                    type="button"
-                    key={mode.id}
-                    className={settings.videoFitMode === mode.id ? "active" : ""}
-                    onClick={() => onPatchSettings({ videoFitMode: mode.id })}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <SettingStepper
               label="Default volume"
               description="New sessions"
@@ -610,6 +590,17 @@ export function SettingsPanel({
                   onChange={(event) => onPatchSettings({ autoQueueFolder: event.currentTarget.checked })}
                 />
                 <span>Folder queue</span>
+              </label>
+
+              <label className="switch-field">
+                <input
+                  type="checkbox"
+                  checked={settings.centerVideoWindowAfterResize}
+                  onChange={(event) =>
+                    onPatchSettings({ centerVideoWindowAfterResize: event.currentTarget.checked })
+                  }
+                />
+                <span>Center after resize</span>
               </label>
             </div>
           </div>

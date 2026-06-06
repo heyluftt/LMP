@@ -2744,19 +2744,19 @@ fn get_media_thumbnail_sync(path: String) -> Result<MediaThumbnail, String> {
         });
     }
 
-    let generated = match kind.as_str() {
+    let created = match kind.as_str() {
         "video" => generate_video_thumbnail(&ffmpeg, &media, &output),
         "audio" => generate_audio_thumbnail(&ffmpeg, &media, &output),
         "image" => generate_image_thumbnail(&ffmpeg, &media, &output, &extension),
         _ => Ok(false),
     }?;
 
-    if generated {
+    if created {
         let _ = enforce_thumbnail_cache_limit(&cache_dir, THUMBNAIL_CACHE_MAX_BYTES);
         return Ok(MediaThumbnail {
             kind,
             path: Some(output.display().to_string()),
-            source: "generated".to_string(),
+            source: "created".to_string(),
         });
     }
 
@@ -2911,7 +2911,7 @@ fn run_ffmpeg_thumbnail(ffmpeg: &Path, args: &[&str], output: &Path) -> Result<b
         let _ = fs::remove_file(output);
     }
     fs::rename(&temp_output, output)
-        .map_err(|error| format!("Could not save generated thumbnail: {error}"))?;
+        .map_err(|error| format!("Could not save thumbnail: {error}"))?;
     Ok(true)
 }
 

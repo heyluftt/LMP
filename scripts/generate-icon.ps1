@@ -188,4 +188,4 @@ foreach ($entry in $entries) {
 
 $writer.Dispose()
 $file.Dispose()
-Write-Output "Generated icon: $resolvedOut"
+Write-Output "Wrote icon: $resolvedOut"

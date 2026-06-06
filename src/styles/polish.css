@@ -22,13 +22,45 @@
 }
 
 .window-titlebar {
-  min-height: 32px;
-  background: rgba(2, 3, 5, 0.94);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.045);
+  min-height: 34px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.065);
+  background:
+    linear-gradient(90deg, rgba(164, 234, 208, 0.075), transparent 34%),
+    rgba(7, 9, 11, 0.94);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(18px);
 }
 
 .window-title {
   color: rgba(255, 248, 238, 0.9);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.window-title-mark {
+  width: 20px;
+  height: 20px;
+  border-radius: 7px;
+  color: rgba(164, 234, 208, 0.92);
+  background: rgba(164, 234, 208, 0.11);
+}
+
+.window-controls button {
+  width: 38px;
+  height: 34px;
+  color: rgba(247, 242, 235, 0.7);
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.window-controls button:hover {
+  color: #fff8ee;
+  background: rgba(164, 234, 208, 0.095);
+}
+
+.window-controls button:last-child:hover {
+  background: rgba(224, 92, 92, 0.7);
 }
 
 .window-title-mark,
@@ -310,10 +342,13 @@
   left: 50%;
   right: auto;
   width: min(700px, calc(100% - 24px));
+  gap: 10px;
+  padding: 12px;
   border-color: rgba(255, 255, 255, 0.11);
   background:
     linear-gradient(145deg, rgba(164, 234, 208, 0.04), transparent 42%),
     rgba(8, 10, 12, 0.9);
+  box-shadow: 0 24px 74px rgba(0, 0, 0, 0.52);
   transform: translateX(-50%);
 }
 
@@ -323,9 +358,124 @@
   transform: translateX(-50%);
 }
 
+.settings-popover .shelf-header {
+  min-height: 28px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.settings-popover .shelf-header > svg {
+  color: rgba(164, 234, 208, 0.88);
+}
+
+.settings-tabs {
+  gap: 2px;
+  width: max-content;
+  max-width: 100%;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: var(--lmp-radius);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.settings-tabs button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  color: rgba(247, 242, 235, 0.58);
+  background: transparent;
+}
+
+.settings-tabs button:hover {
+  color: rgba(255, 248, 238, 0.88);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-tabs button.active {
+  border-color: rgba(164, 234, 208, 0.28);
+  color: rgba(223, 255, 241, 0.95);
+  background: rgba(164, 234, 208, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(164, 234, 208, 0.045);
+}
+
+.settings-panel {
+  padding-right: 4px;
+}
+
 .settings-field {
   border: 1px solid rgba(255, 255, 255, 0.055);
   background: rgba(255, 255, 255, 0.055);
+}
+
+.settings-field,
+.switch-field,
+.viewer-note,
+.backend-panel,
+.backend-card,
+.update-card {
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.settings-field:hover,
+.switch-field:hover,
+.viewer-note:hover,
+.backend-panel:hover,
+.backend-card:hover,
+.update-card:hover {
+  border-color: rgba(164, 234, 208, 0.16);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.switch-field,
+.viewer-note,
+.backend-panel,
+.backend-card,
+.update-card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.switch-field input[type="checkbox"] {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.28);
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.switch-field input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(247, 242, 235, 0.72);
+  transition:
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.switch-field input[type="checkbox"]:checked {
+  border-color: rgba(164, 234, 208, 0.66);
+  background: rgba(164, 234, 208, 0.28);
+}
+
+.switch-field input[type="checkbox"]:checked::after {
+  background: #c9f6e4;
+  transform: translateX(12px);
+}
+
+.switch-field:has(input:checked) {
+  border-color: rgba(164, 234, 208, 0.12);
+  background: rgba(164, 234, 208, 0.07);
 }
 
 .document-viewport,

@@ -259,5 +259,5 @@ if (!(Test-Path $resolvedOutDir)) {
 foreach ($type in $types) {
   $path = Join-Path $resolvedOutDir "$($type.Name).ico"
   Write-Ico -Path $path -Spec $type
-  Write-Output "Generated filetype icon: $path"
+  Write-Output "Wrote filetype icon: $path"
 }

@@ -8,7 +8,6 @@ import {
   FileVideo,
   FolderOpen,
   ImageIcon,
-  Scan,
 } from "lucide-react";
 import {
   type CSSProperties,
@@ -38,7 +37,11 @@ import {
   formatMediaMeta,
   libraryKindLabel,
 } from "./lib/mediaFormat";
-import { applyMiniWindowProfile, applyWindowProfile } from "./lib/windowProfile";
+import {
+  applyMiniWindowProfile,
+  applyVideoWindowAspect,
+  applyWindowProfile,
+} from "./lib/windowProfile";
 import { keyboardCommand } from "./player/keyboard";
 import {
   addMoment,
@@ -77,11 +80,6 @@ import { ResumeController } from "./player/resumeController";
 import { defaultSettings, readSettings, updateSettings } from "./player/settings";
 import type { PlayerSettings } from "./player/settings";
 import { SettingsPanel, settingsTabsFor, type SettingsTab } from "./player/settingsPanel";
-import {
-  nextVideoFitMode,
-  videoFitLabel,
-  videoFitObjectFit,
-} from "./player/videoFit";
 import {
   clampImageZoom,
   defaultImageView,
@@ -676,12 +674,21 @@ function App() {
   const subtitleUrlRef = useRef<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const windowRevealTimerRef = useRef<number | null>(null);
+  const videoWindowAspectTokenRef = useRef<string | null>(null);
+  const videoWindowAspectRetryRef = useRef<number | null>(null);
   const confirmDialogResolverRef = useRef<((value: boolean) => void) | null>(null);
   const promptDialogResolverRef = useRef<((value: string | null) => void) | null>(null);
   const settingsRef = useRef(settings);
   const speedRef = useRef(speed);
   settingsRef.current = settings;
   speedRef.current = speed;
+
+  const cancelVideoWindowAspectRetry = useCallback(() => {
+    if (videoWindowAspectRetryRef.current !== null) {
+      window.clearTimeout(videoWindowAspectRetryRef.current);
+      videoWindowAspectRetryRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     renderedPlaybackPositionRef.current = position;
@@ -748,6 +755,70 @@ function App() {
   const isTimedMedia = mediaCapabilities.timedPlayback;
   const supportsMiniPlayer = mediaCapabilities.miniPlayer;
   const miniPlayerActive = miniPlayer && supportsMiniPlayer;
+
+  const scheduleVideoWindowAspectResize = useCallback(
+    (videoWidth: number, videoHeight: number) => {
+      const loadToken = loadTokenRef.current;
+      const path = activePlaybackPathRef.current;
+      if (miniPlayerActive) {
+        return;
+      }
+      if (!path) {
+        return;
+      }
+      if (!videoWidth || !videoHeight) {
+        return;
+      }
+
+      const resizeToken = `${loadToken}:${path}`;
+      if (videoWindowAspectTokenRef.current === resizeToken) {
+        return;
+      }
+      videoWindowAspectTokenRef.current = resizeToken;
+      cancelVideoWindowAspectRetry();
+
+      const applyAspect = () => {
+        const isCurrent = () =>
+          loadToken === loadTokenRef.current &&
+          activePlaybackPathRef.current === path;
+        if (isCurrent()) {
+          void applyVideoWindowAspect(
+            videoWidth,
+            videoHeight,
+            settings.centerVideoWindowAfterResize,
+            isCurrent,
+          );
+        }
+      };
+
+      applyAspect();
+      videoWindowAspectRetryRef.current = window.setTimeout(() => {
+        videoWindowAspectRetryRef.current = null;
+        applyAspect();
+      }, 220);
+    },
+    [cancelVideoWindowAspectRetry, miniPlayerActive, settings.centerVideoWindowAfterResize],
+  );
+
+  useEffect(() => {
+    if (
+      isVideo &&
+      !miniPlayerActive &&
+      mediaDetails.width &&
+      mediaDetails.height
+    ) {
+      scheduleVideoWindowAspectResize(mediaDetails.width, mediaDetails.height);
+    }
+  }, [
+    isVideo,
+    mediaDetails.height,
+    mediaDetails.width,
+    miniPlayerActive,
+    scheduleVideoWindowAspectResize,
+  ]);
+
+  useEffect(() => cancelVideoWindowAspectRetry, [cancelVideoWindowAspectRetry]);
+
   const supportsQueue = mediaCapabilities.queue;
   const supportsMoments = mediaCapabilities.moments;
   const supportsLoopPoints = mediaCapabilities.loopPoints;
@@ -846,12 +917,11 @@ function App() {
     }),
     [imageView],
   );
-  const activeVideoFitLabel = videoFitLabel(settings.videoFitMode);
   const videoSurfaceStyle = useMemo<CSSProperties>(
     () => ({
-      objectFit: videoFitObjectFit(miniPlayerActive ? "contain" : settings.videoFitMode),
+      objectFit: "cover",
     }),
-    [miniPlayerActive, settings.videoFitMode],
+    [],
   );
   const overviewInspectionItems = useMemo(
     () => mediaInspection?.summary.filter((item) => !isStreamInspectionItem(item)) ?? [],
@@ -1582,6 +1652,8 @@ function App() {
 
       const loadToken = loadTokenRef.current + 1;
       loadTokenRef.current = loadToken;
+      cancelVideoWindowAspectRetry();
+      videoWindowAspectTokenRef.current = null;
       pendingSeekRef.current = null;
       startupResumeRef.current = null;
       if (windowRevealTimerRef.current !== null) {
@@ -1638,7 +1710,9 @@ function App() {
             : null;
 
         activePlaybackPathRef.current = media.path;
-        void applyWindowProfile(viewKind);
+        if (viewKind !== "video") {
+          void applyWindowProfile(viewKind);
+        }
         setCurrentMedia(media);
         if (viewKind === "text") {
           setMediaInspection(null);
@@ -1837,6 +1911,7 @@ function App() {
     },
     [
       abortNativeMediaLoad,
+      cancelVideoWindowAspectRetry,
       clearSubtitleTrack,
       commitPlaybackPosition,
       confirmTextNavigation,
@@ -2393,10 +2468,6 @@ function App() {
     setSettings((current) => updateSettings(current, patch));
   }, []);
 
-  const cycleVideoFit = useCallback(() => {
-    patchSettings({ videoFitMode: nextVideoFitMode(settings.videoFitMode) });
-  }, [patchSettings, settings.videoFitMode]);
-
   const toggleMiniPlayer = useCallback(() => {
     if (!supportsMiniPlayer) {
       return;
@@ -2408,10 +2479,20 @@ function App() {
       setShelfMode(null);
       setControlsPinned(false);
       setControlsVisible(!next);
-      void (next ? applyMiniWindowProfile(currentKind) : applyWindowProfile(currentKind));
+      if (next) {
+        cancelVideoWindowAspectRetry();
+        videoWindowAspectTokenRef.current = null;
+        void applyMiniWindowProfile(currentKind);
+      } else if (currentKind !== "video") {
+        void applyWindowProfile(currentKind);
+      }
       return next;
     });
-  }, [currentKind, supportsMiniPlayer]);
+  }, [
+    cancelVideoWindowAspectRetry,
+    currentKind,
+    supportsMiniPlayer,
+  ]);
 
   const resetSettings = useCallback(() => {
     updateSettings(settings, defaultSettings);
@@ -3744,6 +3825,9 @@ function App() {
         height: video.videoHeight || null,
         duration: nextDuration > 0 ? nextDuration : null,
       });
+      if (isVideo && video.videoWidth && video.videoHeight) {
+        scheduleVideoWindowAspectResize(video.videoWidth, video.videoHeight);
+      }
       const audioTracks = getNativeAudioTracks(media);
       let enabledAudioTrack = 0;
       if (audioTracks) {
@@ -3759,7 +3843,7 @@ function App() {
       media.defaultPlaybackRate = speed;
       media.playbackRate = speed;
     },
-    [speed],
+    [isVideo, scheduleVideoWindowAspectResize, speed],
   );
 
   const onEnded = useCallback(() => {
@@ -4698,10 +4782,6 @@ function App() {
                 <strong>{currentTitle}</strong>
                 <span>{metaLabel}</span>
               </div>
-              <button type="button" onClick={cycleVideoFit} title="Cycle video fit mode">
-                <Scan size={15} />
-                <span>{activeVideoFitLabel}</span>
-              </button>
             </div>
           ) : null}
 

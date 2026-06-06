@@ -12,8 +12,8 @@
 !macroend
 
 !macro LMP_PATCH_TAURI_FILECLASS_ICONS
-  ; Tauri's generated NSIS associations use these display class names when it
-  ; creates default file classes. Keep them visually aligned with our ProgIDs.
+  ; Tauri's NSIS associations use these display class names when it creates
+  ; default file classes. Keep them visually aligned with our ProgIDs.
   !insertmacro LMP_PATCH_TAURI_FILECLASS "LMP Video" "video"
   !insertmacro LMP_PATCH_TAURI_FILECLASS "LMP Audio" "audio"
   !insertmacro LMP_PATCH_TAURI_FILECLASS "LMP Images" "image"

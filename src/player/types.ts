@@ -63,7 +63,7 @@ export type SettingsCacheStatus = {
 export type MediaThumbnail = {
   kind: MediaKind | "folder";
   path: string | null;
-  source: "cache" | "generated" | "source" | "fallback" | string;
+  source: "cache" | "created" | "source" | "fallback" | string;
 };
 
 export type ClipPresetId = "balanced" | "highQuality" | "smallFile";
