@@ -10,6 +10,7 @@ import type { MediaKind } from "./playerBrain";
 type WindowProfile = {
   min: LogicalSize;
   preferred: LogicalSize;
+  growBelow?: LogicalSize;
   shrinkAbove?: LogicalSize;
 };
 
@@ -22,6 +23,20 @@ const compactAudioProfile: WindowProfile = {
 const normalViewerProfile: WindowProfile = {
   min: new LogicalSize(720, 460),
   preferred: new LogicalSize(1100, 700),
+};
+
+const homeProfile: WindowProfile = {
+  min: new LogicalSize(900, 580),
+  preferred: new LogicalSize(1320, 820),
+  growBelow: new LogicalSize(1240, 760),
+  shrinkAbove: new LogicalSize(1580, 980),
+};
+
+const textDraftProfile: WindowProfile = {
+  min: new LogicalSize(760, 500),
+  preferred: new LogicalSize(1120, 700),
+  growBelow: new LogicalSize(980, 620),
+  shrinkAbove: new LogicalSize(1360, 860),
 };
 
 const largeViewerProfile: WindowProfile = {
@@ -126,7 +141,8 @@ export async function applyWindowProfile(kind: MediaKind) {
     const shouldShrink =
       profile.shrinkAbove &&
       (size.width > profile.shrinkAbove.width || size.height > profile.shrinkAbove.height);
-    const shouldGrow = size.width < profile.min.width || size.height < profile.min.height;
+    const growThreshold = profile.growBelow ?? profile.min;
+    const shouldGrow = size.width < growThreshold.width || size.height < growThreshold.height;
 
     if (shouldShrink || shouldGrow) {
       await window.setSize(profile.preferred);
@@ -135,6 +151,37 @@ export async function applyWindowProfile(kind: MediaKind) {
   } catch {
     // Window profiling is a comfort feature; playback/viewing should never depend on it.
   }
+}
+
+async function applyComfortProfile(profile: WindowProfile) {
+  try {
+    const window = getCurrentWindow();
+    await window.setMinSize(profile.min);
+
+    if ((await window.isMaximized()) || (await window.isFullscreen())) {
+      return;
+    }
+
+    const size = await window.innerSize();
+    const shouldShrink =
+      profile.shrinkAbove &&
+      (size.width > profile.shrinkAbove.width || size.height > profile.shrinkAbove.height);
+    const shouldGrow = size.width < profile.min.width || size.height < profile.min.height;
+
+    if (shouldShrink || shouldGrow) {
+      await window.setSize(profile.preferred);
+    }
+  } catch {
+    // Window profiling is a comfort feature; viewing should never depend on it.
+  }
+}
+
+export async function applyHomeWindowProfile() {
+  await applyComfortProfile(homeProfile);
+}
+
+export async function applyTextDraftWindowProfile() {
+  await applyComfortProfile(textDraftProfile);
 }
 
 export async function applyMiniWindowProfile(kind: MediaKind) {

@@ -1,7 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { GstreamerPlaybackSession, GstreamerProbe } from "./types";
+import type { GstreamerPlaybackSession, GstreamerProbe, MpvPlaybackSession } from "./types";
 
 export const emptyGstreamerSession: GstreamerPlaybackSession = {
+  active: false,
+  path: null,
+  pid: null,
+  started_at: null,
+};
+
+export const emptyMpvSession: MpvPlaybackSession = {
   active: false,
   path: null,
   pid: null,
@@ -22,6 +29,10 @@ export function isGstreamerActiveFor(session: GstreamerPlaybackSession, path: st
   return Boolean(session.active && path && session.path === path);
 }
 
+export function isMpvActiveFor(session: MpvPlaybackSession, path: string | null) {
+  return Boolean(session.active && path && session.path === path);
+}
+
 export function probeGstreamer(path: string) {
   return invoke<GstreamerProbe>("probe_media_with_gstreamer", { path });
 }
@@ -36,4 +47,19 @@ export function stopGstreamerPlayback() {
 
 export function readGstreamerPlaybackSession() {
   return invoke<GstreamerPlaybackSession>("get_gstreamer_playback_session");
+}
+
+export function startMpvPlayback(path: string, startSeconds?: number | null) {
+  return invoke<MpvPlaybackSession>("start_mpv_playback", {
+    path,
+    startSeconds: startSeconds ?? null,
+  });
+}
+
+export function stopMpvPlayback() {
+  return invoke<MpvPlaybackSession>("stop_mpv_playback");
+}
+
+export function readMpvPlaybackSession() {
+  return invoke<MpvPlaybackSession>("get_mpv_playback_session");
 }

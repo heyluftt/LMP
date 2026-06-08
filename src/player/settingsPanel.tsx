@@ -52,6 +52,9 @@ export const textSettingsTabs: SettingsTabDefinition[] = [
 ];
 
 export function settingsTabsFor(kind: MediaKind) {
+  if (kind === "unknown") {
+    return playerSettingsTabs;
+  }
   if (kind === "video") {
     return playerSettingsTabs;
   }
@@ -715,30 +718,35 @@ export function SettingsPanel({
                 <span>{fallbackStatusLabel}</span>
               </div>
               <div className="backend-choice">
-                {[
-                  ["auto", "Auto"],
-                  ["gstreamer", "GStreamer"],
-                  ["off", "Off"],
-                ].map(([value, label]) => (
+                <div className="backend-choice-group" aria-label="Fallback engine mode">
+                  {[
+                    ["auto", "Auto"],
+                    ["gstreamer", "GStreamer"],
+                    ["off", "Off"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`backend-mode-button ${settings.fallbackEngine === value ? "active" : ""}`}
+                      onClick={() =>
+                        onPatchSettings({
+                          fallbackEngine: value as PlayerSettings["fallbackEngine"],
+                        })
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className="backend-action-group" aria-label="Fallback engine test actions">
                   <button
-                    key={value}
-                    className={settings.fallbackEngine === value ? "active" : ""}
-                    onClick={() =>
-                      onPatchSettings({
-                        fallbackEngine: value as PlayerSettings["fallbackEngine"],
-                      })
-                    }
+                    className="backend-test-button"
+                    onClick={onOpenCurrentWithGstreamer}
+                    disabled={!currentPath || isStaticViewer || !gstreamerAvailable}
+                    title="Open current media through the external GStreamer fallback"
                   >
-                    {label}
+                    Test GStreamer
                   </button>
-                ))}
-                <button
-                  onClick={onOpenCurrentWithGstreamer}
-                  disabled={!currentPath || isStaticViewer || !gstreamerAvailable}
-                  title="Open current media through the external GStreamer fallback"
-                >
-                  Test
-                </button>
+                </div>
               </div>
             </div>
 

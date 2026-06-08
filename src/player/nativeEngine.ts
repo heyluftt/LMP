@@ -1,20 +1,28 @@
 import { clampVolume, normalizeSpeed } from "../lib/playerBrain";
-import type { PlayerCommand } from "./types";
+import type {
+  PlaybackEngine,
+  PlaybackEngineLoadOptions,
+  PlaybackEngineSnapshot,
+  PlayerCommand,
+} from "./types";
 
 const frameSeconds = 1 / 30;
 
-export class NativeMediaEngine {
+export class NativeMediaEngine implements PlaybackEngine {
+  readonly id = "native-webview" as const;
+  readonly canRenderInline = true;
+
   private media: HTMLMediaElement;
 
   constructor(media: HTMLMediaElement) {
     this.media = media;
   }
 
-  load(src: string, volume: number, speed: number) {
+  load({ source, volume, speed }: PlaybackEngineLoadOptions) {
     this.media.volume = clampVolume(volume) / 100;
     this.setSpeed(speed);
-    if (this.media.src !== src) {
-      this.media.src = src;
+    if (this.media.src !== source) {
+      this.media.src = source;
       this.media.load();
     } else if (this.media.readyState === 0) {
       this.media.load();
@@ -61,13 +69,21 @@ export class NativeMediaEngine {
     }
   }
 
-  private setSpeed(value: number) {
-    const next = normalizeSpeed(value);
-    this.media.defaultPlaybackRate = next;
-    this.media.playbackRate = next;
+  snapshot(): PlaybackEngineSnapshot {
+    return {
+      id: this.id,
+      canRenderInline: this.canRenderInline,
+      duration: Number.isFinite(this.media.duration) ? this.media.duration : 0,
+      paused: this.media.paused,
+      position: this.media.currentTime || 0,
+      readyState: this.media.readyState,
+      seeking: this.media.seeking,
+      speed: normalizeSpeed(this.media.playbackRate || 1),
+      volume: clampVolume(this.media.volume * 100),
+    };
   }
 
-  private seekTo(seconds: number, preferFastSeek = false) {
+  seekTo(seconds: number, preferFastSeek = false) {
     const duration = Number.isFinite(this.media.duration) ? this.media.duration : 0;
     const next = duration > 0 ? Math.max(0, Math.min(duration, seconds)) : Math.max(0, seconds);
 
@@ -78,4 +94,28 @@ export class NativeMediaEngine {
 
     this.media.currentTime = next;
   }
+
+  private setSpeed(value: number) {
+    const next = normalizeSpeed(value);
+    this.media.defaultPlaybackRate = next;
+    this.media.playbackRate = next;
+    this.setPreservesPitch(true);
+  }
+
+  private setPreservesPitch(enabled: boolean) {
+    const media = this.media as HTMLMediaElement & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+    media.preservesPitch = enabled;
+    media.mozPreservesPitch = enabled;
+    media.webkitPreservesPitch = enabled;
+  }
+}
+
+export function createNativePlaybackEngine(
+  media: HTMLMediaElement | null | undefined,
+): PlaybackEngine | null {
+  return media ? new NativeMediaEngine(media) : null;
 }

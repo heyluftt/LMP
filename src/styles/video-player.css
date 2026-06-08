@@ -26,25 +26,65 @@
   min-height: 36px;
   margin: 0;
   padding-left: 12px;
-  border-color: rgba(164, 234, 208, 0.055);
-  background:
-    linear-gradient(90deg, rgba(80, 136, 124, 0.2), transparent 38%),
-    linear-gradient(180deg, rgba(7, 12, 13, 0.62), rgba(7, 12, 13, 0.32));
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.09);
-  backdrop-filter: blur(18px) saturate(1.1);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .app-shell.with-media:has(.player-view.video-mode) .window-title {
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.48);
+  color: rgba(255, 248, 238, 0.94);
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.76),
+    0 4px 18px rgba(0, 0, 0, 0.68);
+}
+
+.app-shell.with-media:has(.player-view.video-mode) .window-title span:last-child {
+  display: none;
+}
+
+.app-shell.with-media:has(.player-view.video-mode) .window-title-mark {
+  color: rgba(184, 250, 225, 0.96);
+  border: 1px solid rgba(184, 250, 225, 0.24);
+  background: rgba(5, 8, 9, 0.18);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 4px 18px rgba(0, 0, 0, 0.36);
+  opacity: 1;
+  backdrop-filter: blur(10px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-title-mark {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+
+.app-shell.with-media:has(.player-view.video-mode) .window-controls {
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
 }
 
 .app-shell.with-media:has(.player-view.video-mode) .window-controls button {
-  height: 36px;
-  background: transparent;
+  width: 34px;
+  height: 30px;
+  border-radius: 7px;
+  color: rgba(255, 248, 238, 0.82);
+  background: rgba(5, 8, 9, 0.13);
+  filter: drop-shadow(0 2px 9px rgba(0, 0, 0, 0.68));
+  backdrop-filter: blur(10px);
 }
 
 .app-shell.with-media:has(.player-view.video-mode) .window-controls button:hover {
-  background: rgba(255, 255, 255, 0.085);
+  color: #fff8ee;
+  background: rgba(164, 234, 208, 0.16);
+}
+
+.app-shell.with-media:has(.player-view.video-mode) .window-controls button:last-child:hover {
+  background: rgba(224, 92, 92, 0.72);
 }
 
 .app-shell.with-media:has(.player-view.video-mode) > .media-shelf {

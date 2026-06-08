@@ -1,10 +1,11 @@
 import { formatClock } from "../lib/playerBrain";
 import { getResume, saveResume } from "./memory";
+import type { PlaybackEngine } from "./types";
 
 type ResumeControllerOptions = {
   isEnabled: () => boolean;
   isAllowedPath: (path: string) => boolean;
-  isCurrent: (path: string, token: number) => boolean;
+  isCurrent: (path: string, loadId: number) => boolean;
   getSpeed: () => number;
   setPosition: (seconds: number) => void;
   notify: (message: string) => void;
@@ -12,7 +13,7 @@ type ResumeControllerOptions = {
 
 type ResumeSession = {
   path: string;
-  token: number;
+  loadId: number;
   cancelledByUser: boolean;
 };
 
@@ -29,7 +30,7 @@ export class ResumeController {
 
   constructor(private options: ResumeControllerOptions) {}
 
-  beginLoad(path: string, token: number) {
+  beginLoad(path: string, loadId: number) {
     this.clearTimer();
     if (!this.options.isAllowedPath(path)) {
       this.active = null;
@@ -39,7 +40,7 @@ export class ResumeController {
       return;
     }
 
-    this.active = { path, token, cancelledByUser: false };
+    this.active = { path, loadId, cancelledByUser: false };
     this.appliedPath = null;
     this.pending = false;
     this.saveBlockedUntil = Date.now() + initialSaveBlockMs;
@@ -59,11 +60,11 @@ export class ResumeController {
     this.active = null;
   }
 
-  maybeResume(media: HTMLMediaElement, path: string, token: number): boolean {
+  maybeResume(engine: PlaybackEngine, path: string, loadId: number): boolean {
     if (
       !this.options.isEnabled() ||
       !this.options.isAllowedPath(path) ||
-      !this.isActive(path, token) ||
+      !this.isActive(path, loadId) ||
       this.active?.cancelledByUser
     ) {
       return false;
@@ -82,13 +83,16 @@ export class ResumeController {
       return false;
     }
 
+    const initialSnapshot = engine.snapshot();
     const durationAllowsResume =
-      !Number.isFinite(media.duration) || media.duration <= 0 || media.duration - resume.position > 8;
+      !Number.isFinite(initialSnapshot.duration) ||
+      initialSnapshot.duration <= 0 ||
+      initialSnapshot.duration - resume.position > 8;
     if (!durationAllowsResume) {
       return false;
     }
 
-    if (media.readyState < 2) {
+    if (initialSnapshot.readyState < 1) {
       return false;
     }
 
@@ -96,8 +100,8 @@ export class ResumeController {
     let attempts = 0;
     const maxAttempts = 5;
 
-    const finish = (applied: boolean, actualPosition = media.currentTime || 0) => {
-      if (!this.isActive(path, token)) {
+    const finish = (applied: boolean, actualPosition = engine.snapshot().position) => {
+      if (!this.isActive(path, loadId)) {
         return;
       }
 
@@ -122,26 +126,28 @@ export class ResumeController {
     };
 
     const resolveTarget = () => {
-      if (media.readyState < 2) {
+      const snapshot = engine.snapshot();
+      if (snapshot.readyState < 1) {
         return null;
       }
 
       const knownDuration =
-        Number.isFinite(media.duration) && media.duration > 0 ? media.duration : resume.duration;
+        Number.isFinite(snapshot.duration) && snapshot.duration > 0 ? snapshot.duration : resume.duration;
       const upperBound = knownDuration > 0 ? Math.max(0, knownDuration - 8) : resume.position;
       const target = Math.min(resume.position, upperBound);
       return target > 5 ? target : null;
     };
 
     const isStableAtTarget = (target: number) => {
-      const actual = media.currentTime || 0;
+      const snapshot = engine.snapshot();
+      const actual = snapshot.position;
       const speedAllowance = Math.max(7, this.options.getSpeed() * 4);
-      return !media.seeking && actual >= target - 1.25 && actual <= target + speedAllowance;
+      return !snapshot.seeking && actual >= target - 1.25 && actual <= target + speedAllowance;
     };
 
     const verifyStable = (target: number) => {
       this.timer = window.setTimeout(() => {
-        if (!this.isActive(path, token) || this.active?.cancelledByUser || !this.options.isEnabled()) {
+        if (!this.isActive(path, loadId) || this.active?.cancelledByUser || !this.options.isEnabled()) {
           this.pending = false;
           this.clearTimer();
           return;
@@ -153,7 +159,7 @@ export class ResumeController {
         }
 
         this.timer = window.setTimeout(() => {
-          if (!this.isActive(path, token) || this.active?.cancelledByUser || !this.options.isEnabled()) {
+          if (!this.isActive(path, loadId) || this.active?.cancelledByUser || !this.options.isEnabled()) {
             this.pending = false;
             this.clearTimer();
             return;
@@ -170,7 +176,7 @@ export class ResumeController {
     };
 
     const tryApply = () => {
-      if (!this.isActive(path, token) || this.active?.cancelledByUser || !this.options.isEnabled()) {
+      if (!this.isActive(path, loadId) || this.active?.cancelledByUser || !this.options.isEnabled()) {
         this.pending = false;
         this.clearTimer();
         return;
@@ -183,7 +189,7 @@ export class ResumeController {
       }
 
       try {
-        media.currentTime = target;
+        engine.seekTo(target, true);
       } catch {
         retry();
         return;
@@ -196,8 +202,8 @@ export class ResumeController {
     return true;
   }
 
-  saveProgress(media: HTMLMediaElement, path: string | null, token: number, force = false) {
-    if (!path || !this.options.isAllowedPath(path) || this.pending || !this.isActive(path, token)) {
+  saveProgress(engine: PlaybackEngine, path: string | null, loadId: number, force = false) {
+    if (!path || !this.options.isAllowedPath(path) || this.pending || !this.isActive(path, loadId)) {
       return;
     }
 
@@ -206,17 +212,18 @@ export class ResumeController {
       return;
     }
 
-    const position = media.currentTime || 0;
+    const snapshot = engine.snapshot();
+    const position = snapshot.position;
     if (position < 5) {
       return;
     }
 
     this.lastSaveAt = now;
-    saveResume(path, position, media.duration || 0);
+    saveResume(path, position, snapshot.duration);
   }
 
-  private isActive(path: string, token: number) {
-    return this.active?.path === path && this.active.token === token && this.options.isCurrent(path, token);
+  private isActive(path: string, loadId: number) {
+    return this.active?.path === path && this.active.loadId === loadId && this.options.isCurrent(path, loadId);
   }
 
   private clearTimer() {

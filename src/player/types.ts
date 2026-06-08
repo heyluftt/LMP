@@ -1,6 +1,6 @@
 import type { MediaKind } from "../lib/playerBrain";
 
-export type EngineName = "native-webview" | "gstreamer" | "ffmpeg-helper";
+export type EngineName = "native-webview" | "mpv" | "gstreamer" | "ffmpeg-helper";
 
 export type EngineStatus = {
   available: boolean;
@@ -24,6 +24,13 @@ export type GstreamerProbe = {
 };
 
 export type GstreamerPlaybackSession = {
+  active: boolean;
+  path?: string | null;
+  pid?: number | null;
+  started_at?: number | null;
+};
+
+export type MpvPlaybackSession = {
   active: boolean;
   path?: string | null;
   pid?: number | null;
@@ -114,6 +121,37 @@ export type PlayerSnapshot = {
   volume: number;
   speed: number;
 };
+
+export type PlaybackEngineId = "native-webview" | "libmpv" | "lmp-av";
+
+export type PlaybackEngineLoadOptions = {
+  source: string;
+  volume: number;
+  speed: number;
+};
+
+export type PlaybackEngineSnapshot = {
+  id: PlaybackEngineId;
+  canRenderInline: boolean;
+  duration: number;
+  paused: boolean;
+  position: number;
+  readyState: number;
+  seeking: boolean;
+  speed: number;
+  volume: number;
+};
+
+export interface PlaybackEngine {
+  readonly id: PlaybackEngineId;
+  readonly canRenderInline: boolean;
+  load(options: PlaybackEngineLoadOptions): void;
+  play(): Promise<void>;
+  pause(): void;
+  run(command: PlayerCommand): Promise<void>;
+  seekTo(seconds: number, preferFastSeek?: boolean): void;
+  snapshot(): PlaybackEngineSnapshot;
+}
 
 export type PlayerCommand =
   | { type: "togglePause" }

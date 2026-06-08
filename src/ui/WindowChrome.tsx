@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Disc3, Maximize2, Minimize2, Minus, Square, X } from "lucide-react";
+import { ArrowLeft, Disc3, Maximize2, Minimize2, Minus, Square, X } from "lucide-react";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -10,7 +10,9 @@ import { useRef } from "react";
 type WindowChromeProps = {
   title: string;
   canMiniPlayer: boolean;
+  canGoHome?: boolean;
   miniPlayer: boolean;
+  onGoHome?: () => void;
   onRequestClose?: () => boolean | Promise<boolean>;
   onToggleMiniPlayer: () => void;
 };
@@ -20,7 +22,9 @@ type CloseButtonEvent = ReactMouseEvent<HTMLButtonElement> | ReactPointerEvent<H
 export function WindowChrome({
   title,
   canMiniPlayer,
+  canGoHome = false,
   miniPlayer,
+  onGoHome,
   onRequestClose,
   onToggleMiniPlayer,
 }: WindowChromeProps) {
@@ -69,6 +73,22 @@ export function WindowChrome({
   return (
     <header className="window-titlebar" onPointerDown={startWindowDrag} onDoubleClick={toggleWindowMaximize}>
       <div className="window-title">
+        {canGoHome ? (
+          <button
+            type="button"
+            className="window-home-button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              event.currentTarget.blur();
+              onGoHome?.();
+            }}
+            title="Back to home"
+            aria-label="Back to home"
+          >
+            <ArrowLeft size={14} />
+          </button>
+        ) : null}
         <span className="window-title-mark" aria-hidden="true">
           <Disc3 size={13} />
         </span>

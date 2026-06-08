@@ -72,6 +72,21 @@ const SUPPORTED_MEDIA_EXTENSIONS: &[&str] = &[
     "alac", "au", "snd",
 ];
 
+const VIDEO_FILE_EXTENSIONS: &[&str] = &[
+    "mp4", "m4v", "webm", "mov", "wmv", "mkv", "avi", "ts", "mts", "m2ts", "mpeg", "mpg", "mpe",
+    "ogv", "3gp", "3g2", "flv", "f4v", "asf", "vob", "divx", "mxf",
+];
+const AUDIO_FILE_EXTENSIONS: &[&str] = &[
+    "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "aif", "oga", "weba",
+    "caf", "amr", "mka", "mp2", "mpa", "ac3", "eac3", "dts", "dtshd", "ape", "alac", "au",
+    "snd",
+];
+const IMAGE_FILE_EXTENSIONS: &[&str] = &[
+    "jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "avif", "svg", "ico", "tif", "tiff",
+];
+const PDF_FILE_EXTENSIONS: &[&str] = &["pdf"];
+const WORD_FILE_EXTENSIONS: &[&str] = &["doc", "docx", "docm", "dotx", "dotm"];
+
 const THUMBNAIL_CACHE_MAX_BYTES: u64 = 512 * 1024 * 1024;
 const PROBE_CACHE_SCHEMA_VERSION: u32 = 1;
 const PROBE_FORMAT_VERSION: u32 = 1;
@@ -107,6 +122,7 @@ struct AppState {
     clip_export_cancellations: Arc<Mutex<HashSet<String>>>,
     window_counter: Arc<Mutex<u64>>,
     gstreamer_session: Arc<Mutex<Option<GstreamerPlaybackState>>>,
+    mpv_session: Arc<Mutex<Option<MpvPlaybackState>>>,
 }
 
 impl AppState {
@@ -120,6 +136,7 @@ impl AppState {
             clip_export_cancellations: Arc::new(Mutex::new(HashSet::new())),
             window_counter: Arc::new(Mutex::new(0)),
             gstreamer_session: Arc::new(Mutex::new(None)),
+            mpv_session: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -132,6 +149,20 @@ struct GstreamerPlaybackState {
 }
 
 impl Drop for GstreamerPlaybackState {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+struct MpvPlaybackState {
+    path: String,
+    pid: u32,
+    started_at: u64,
+    child: Child,
+}
+
+impl Drop for MpvPlaybackState {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
@@ -164,6 +195,14 @@ struct GstreamerProbe {
 
 #[derive(Serialize)]
 struct GstreamerPlaybackSession {
+    active: bool,
+    path: Option<String>,
+    pid: Option<u32>,
+    started_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct MpvPlaybackSession {
     active: bool,
     path: Option<String>,
     pid: Option<u32>,
@@ -362,7 +401,7 @@ fn main() {
                         files.insert("main".to_string(), main_startup_files.clone());
                     };
                 }
-                if reveal_main_immediately {
+                if reveal_main_immediately || !main_startup_files.is_empty() {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -376,6 +415,7 @@ fn main() {
             probe_media_with_gstreamer,
             open_file_dialog,
             open_files_dialog,
+            open_filtered_files_dialog,
             open_media_folder_dialog,
             open_subtitle_dialog,
             find_sidecar_subtitle,
@@ -386,6 +426,9 @@ fn main() {
             start_gstreamer_playback,
             stop_gstreamer_playback,
             get_gstreamer_playback_session,
+            start_mpv_playback,
+            stop_mpv_playback,
+            get_mpv_playback_session,
             transmux_for_native,
             choose_clip_output_path,
             export_video_clip,
@@ -591,6 +634,14 @@ fn route_single_instance_files(
     state: &AppState,
     files: Vec<String>,
 ) -> Result<(), String> {
+    if let Some(label) = window_label_for_exact_files(state, &files) {
+        if let Some(window) = app.get_webview_window(&label) {
+            log_routing_decision(state, &files, "same-files", Some(&label));
+            reveal_and_emit_files(state, &window, files);
+            return Ok(());
+        }
+    }
+
     if let Some(label) = target_window_label_for_files(state, &files) {
         if let Some(window) = app.get_webview_window(&label) {
             log_routing_decision(state, &files, "replace-audio-or-use-empty", Some(&label));
@@ -601,6 +652,59 @@ fn route_single_instance_files(
 
     log_routing_decision(state, &files, "new-window", None);
     open_files_in_new_window(app, state, files)
+}
+
+fn window_label_for_exact_files(state: &AppState, files: &[String]) -> Option<String> {
+    if files.is_empty() {
+        return None;
+    }
+
+    let incoming = normalized_route_files(files);
+    if incoming.is_empty() {
+        return None;
+    }
+
+    let active_files = state
+        .window_media_files
+        .lock()
+        .map(|files| files.clone())
+        .unwrap_or_default();
+    active_files
+        .iter()
+        .find(|(_, window_files)| normalized_route_files(window_files) == incoming)
+        .map(|(label, _)| label.clone())
+        .or_else(|| {
+            state
+                .window_files
+                .lock()
+                .map(|pending| {
+                    pending
+                        .iter()
+                        .find(|(_, window_files)| normalized_route_files(window_files) == incoming)
+                        .map(|(label, _)| label.clone())
+                })
+                .unwrap_or(None)
+        })
+}
+
+fn normalized_route_files(files: &[String]) -> Vec<String> {
+    files
+        .iter()
+        .filter_map(|file| {
+            let path = PathBuf::from(file);
+            let path = fs::canonicalize(&path).unwrap_or(path);
+            path.to_str().map(|value| {
+                #[cfg(windows)]
+                {
+                    value.to_ascii_lowercase()
+                }
+                #[cfg(not(windows))]
+                {
+                    value.to_string()
+                }
+            })
+        })
+        .collect()
 }
 
 fn target_window_label_for_files(state: &AppState, files: &[String]) -> Option<String> {
@@ -1139,7 +1243,7 @@ fn open_files_in_new_window(
     .min_inner_size(profile.min_width, profile.min_height)
     .resizable(true)
     .decorations(false)
-    .visible(false)
+    .visible(true)
     .center()
     .build()
     .map_err(|error| {
@@ -1225,10 +1329,13 @@ fn window_profile_for_files(files: &[String]) -> WindowProfile {
 #[tauri::command]
 fn get_engine_status() -> EngineStatus {
     let gstreamer = detect_gstreamer();
+    let mpv = detect_mpv();
     let fallback_hint = if gstreamer.available {
         "GStreamer fallback tools are detected and ready for the next playback path.".to_string()
+    } else if mpv.available {
+        "MPV is detected for optional external playback tests.".to_string()
     } else {
-        "GStreamer fallback is not configured yet; native WebView playback stays primary."
+        "External playback engines are not configured yet; native WebView playback stays primary."
             .to_string()
     };
 
@@ -1236,7 +1343,7 @@ fn get_engine_status() -> EngineStatus {
         available: true,
         name: "Native WebView media engine".to_string(),
         hint: Some(format!(
-            "Uses the OS/WebView media stack; no mpv binary is bundled. {fallback_hint}"
+            "Uses the OS/WebView media stack. {fallback_hint}"
         )),
     }
 }
@@ -1245,6 +1352,7 @@ fn get_engine_status() -> EngineStatus {
 fn get_playback_backends() -> Vec<PlaybackBackendStatus> {
     vec![
         detect_native_backend(),
+        detect_mpv(),
         detect_gstreamer(),
         detect_ffmpeg_helper(),
     ]
@@ -1348,6 +1456,49 @@ fn open_files_dialog() -> Result<Vec<String>, String> {
         .collect();
 
     Ok(files)
+}
+
+#[tauri::command]
+fn open_filtered_files_dialog(kind: String) -> Result<Vec<String>, String> {
+    let target = kind.trim().to_ascii_lowercase();
+    let dialog = match target.as_str() {
+        "audio" => rfd::FileDialog::new().add_filter("Audio", AUDIO_FILE_EXTENSIONS),
+        "video" => rfd::FileDialog::new().add_filter("Video", VIDEO_FILE_EXTENSIONS),
+        "image" => rfd::FileDialog::new().add_filter("Images", IMAGE_FILE_EXTENSIONS),
+        "pdf" => rfd::FileDialog::new().add_filter("PDF", PDF_FILE_EXTENSIONS),
+        "word" => rfd::FileDialog::new().add_filter("Word Documents", WORD_FILE_EXTENSIONS),
+        "text" => rfd::FileDialog::new().add_filter("Text / Code", TEXT_FILE_EXTENSIONS),
+        _ => rfd::FileDialog::new().add_filter("Media", SUPPORTED_MEDIA_EXTENSIONS),
+    };
+
+    let files = dialog
+        .pick_files()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|path| file_matches_dialog_target(path, &target))
+        .map(|path| path.display().to_string())
+        .collect();
+
+    Ok(files)
+}
+
+fn file_matches_dialog_target(path: &Path, target: &str) -> bool {
+    if !is_supported_media_path(path) {
+        return false;
+    }
+
+    let extension = media_extension(path);
+    match target {
+        "audio" => media_kind_label(path) == "audio",
+        "video" => media_kind_label(path) == "video",
+        "image" => media_kind_label(path) == "image",
+        "pdf" => extension == "pdf",
+        "word" => WORD_FILE_EXTENSIONS
+            .iter()
+            .any(|word_extension| *word_extension == extension.as_str()),
+        "text" => media_kind_label(path) == "text",
+        _ => true,
+    }
 }
 
 #[tauri::command]
@@ -1784,6 +1935,55 @@ fn get_gstreamer_playback_session(
 }
 
 #[tauri::command]
+fn start_mpv_playback(
+    path: String,
+    start_seconds: Option<f64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<MpvPlaybackSession, String> {
+    let media = validated_external_playback_media(&path, "MPV")?;
+    let child = spawn_mpv_child(&media, start_seconds)?;
+    let pid = child.id();
+    let started_at = unix_now_seconds();
+
+    let mut session = state
+        .mpv_session
+        .lock()
+        .map_err(|_| "Could not update MPV session.".to_string())?;
+
+    *session = Some(MpvPlaybackState {
+        path: media.display().to_string(),
+        pid,
+        started_at,
+        child,
+    });
+
+    Ok(mpv_session_snapshot(&mut session))
+}
+
+#[tauri::command]
+fn stop_mpv_playback(state: tauri::State<'_, AppState>) -> Result<MpvPlaybackSession, String> {
+    let mut session = state
+        .mpv_session
+        .lock()
+        .map_err(|_| "Could not stop MPV session.".to_string())?;
+
+    *session = None;
+    Ok(empty_mpv_session())
+}
+
+#[tauri::command]
+fn get_mpv_playback_session(
+    state: tauri::State<'_, AppState>,
+) -> Result<MpvPlaybackSession, String> {
+    let mut session = state
+        .mpv_session
+        .lock()
+        .map_err(|_| "Could not read MPV session.".to_string())?;
+
+    Ok(mpv_session_snapshot(&mut session))
+}
+
+#[tauri::command]
 fn print_file(path: String) -> Result<(), String> {
     let file = PathBuf::from(path);
     if !file.exists() || !file.is_file() {
@@ -2074,6 +2274,10 @@ fn apply_text_line_ending(content: &str, line_ending: &str) -> String {
 }
 
 fn validated_gstreamer_media(path: &str) -> Result<PathBuf, String> {
+    validated_external_playback_media(path, "GStreamer")
+}
+
+fn validated_external_playback_media(path: &str, engine_name: &str) -> Result<PathBuf, String> {
     let media = PathBuf::from(path);
     if !media.exists() || !media.is_file() {
         return Err(format!("File does not exist: {path}"));
@@ -2082,7 +2286,7 @@ fn validated_gstreamer_media(path: &str) -> Result<PathBuf, String> {
         return Err(format!("Unsupported file type: {}", media.display()));
     }
     if matches!(media_kind_label(&media), "image" | "document") {
-        return Err("GStreamer fallback is only used for audio and video files.".to_string());
+        return Err(format!("{engine_name} fallback is only used for audio and video files."));
     }
 
     Ok(media)
@@ -2107,6 +2311,38 @@ fn spawn_gstreamer_child(media: &Path) -> Result<Child, String> {
     command
         .spawn()
         .map_err(|error| format!("Could not start GStreamer playback: {error}"))
+}
+
+fn spawn_mpv_child(media: &Path, start_seconds: Option<f64>) -> Result<Child, String> {
+    let player =
+        find_tool("mpv").ok_or_else(|| "mpv was not found. Add mpv.exe to PATH or LMP tools.".to_string())?;
+
+    let mut command = Command::new(player);
+    command
+        .arg("--no-config")
+        .arg("--no-terminal")
+        .arg("--force-window=yes")
+        .arg("--keep-open=no")
+        .arg("--no-resume-playback")
+        .arg("--input-default-bindings=yes")
+        .arg("--osd-level=1")
+        .arg("--hwdec=auto-safe")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    if let Some(start_seconds) = start_seconds.filter(|value| value.is_finite() && *value > 0.5) {
+        command.arg(format!("--start={start_seconds:.3}"));
+    }
+
+    command.arg(media);
+
+    #[cfg(windows)]
+    command.creation_flags(CREATE_NO_WINDOW);
+
+    command
+        .spawn()
+        .map_err(|error| format!("Could not start MPV playback: {error}"))
 }
 
 fn gstreamer_session_snapshot(
@@ -2134,6 +2370,36 @@ fn gstreamer_session_snapshot(
 
 fn empty_gstreamer_session() -> GstreamerPlaybackSession {
     GstreamerPlaybackSession {
+        active: false,
+        path: None,
+        pid: None,
+        started_at: None,
+    }
+}
+
+fn mpv_session_snapshot(session: &mut Option<MpvPlaybackState>) -> MpvPlaybackSession {
+    let finished = match session.as_mut() {
+        Some(current) => matches!(current.child.try_wait(), Ok(Some(_))),
+        None => false,
+    };
+
+    if finished {
+        *session = None;
+    }
+
+    match session.as_ref() {
+        Some(current) => MpvPlaybackSession {
+            active: true,
+            path: Some(current.path.clone()),
+            pid: Some(current.pid),
+            started_at: Some(current.started_at),
+        },
+        None => empty_mpv_session(),
+    }
+}
+
+fn empty_mpv_session() -> MpvPlaybackSession {
+    MpvPlaybackSession {
         active: false,
         path: None,
         pid: None,
@@ -2513,7 +2779,7 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
     let extension = media_extension(&media);
     if !matches!(
         extension.as_str(),
-        "ts" | "mts" | "m2ts" | "mp4" | "m4v" | "mov"
+        "ts" | "mts" | "m2ts" | "mp4" | "m4v" | "mov" | "mkv"
     ) {
         return Err(
             "The native remux fallback is only enabled for video containers LMP can safely remux."
@@ -2530,14 +2796,25 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
 
     let stem = safe_file_stem(&media);
     let cache_key = media_cache_key(&media, &metadata);
-    let output = cache_dir.join(format!("{stem}-{cache_key}.mp4"));
+    let target = remux_target_for_media(&media, &extension);
+    let output = cache_dir.join(format!("{stem}-{cache_key}.{}", target.extension));
     if output.exists() && output.metadata().map(|item| item.len()).unwrap_or(0) > 0 {
         return media_file_from_path(output);
     }
 
-    let temp_output = cache_dir.join(format!("{stem}-{cache_key}.tmp.mp4"));
+    let temp_output = cache_dir.join(format!("{stem}-{cache_key}.tmp.{}", target.extension));
     if temp_output.exists() {
         let _ = fs::remove_file(&temp_output);
+    }
+
+    if target.copy_source {
+        if fs::hard_link(&media, &temp_output).is_err() {
+            fs::copy(&media, &temp_output)
+                .map_err(|error| format!("Could not prepare WebM cache copy: {error}"))?;
+        }
+        fs::rename(&temp_output, &output)
+            .map_err(|error| format!("Could not save prepared media: {error}"))?;
+        return media_file_from_path(output);
     }
 
     let ffmpeg = find_tool("ffmpeg").unwrap_or_else(|| PathBuf::from(ffmpeg_command_name()));
@@ -2558,10 +2835,14 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
         .arg("-sn")
         .arg("-dn")
         .arg("-c")
-        .arg("copy")
-        .arg("-movflags")
-        .arg("+faststart")
-        .arg(&temp_output);
+        .arg("copy");
+    if let Some(format) = target.format {
+        command.arg("-f").arg(format);
+    }
+    if target.faststart {
+        command.arg("-movflags").arg("+faststart");
+    }
+    command.arg(&temp_output);
 
     #[cfg(windows)]
     command.creation_flags(CREATE_NO_WINDOW);
@@ -2574,7 +2855,7 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
         let _ = fs::remove_file(&temp_output);
         let details = String::from_utf8_lossy(&result.stderr).trim().to_string();
         let hint = if details.is_empty() {
-            "FFmpeg could not remux this transport stream.".to_string()
+            "FFmpeg could not prepare this media file.".to_string()
         } else {
             details
         };
@@ -2585,6 +2866,85 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
         .map_err(|error| format!("Could not save remuxed media: {error}"))?;
 
     media_file_from_path(output)
+}
+
+struct RemuxTarget {
+    extension: &'static str,
+    format: Option<&'static str>,
+    faststart: bool,
+    copy_source: bool,
+}
+
+fn remux_target_for_media(media: &Path, extension: &str) -> RemuxTarget {
+    if extension == "mkv" && matroska_prefers_webm(media) {
+        return RemuxTarget {
+            extension: "webm",
+            format: None,
+            faststart: false,
+            copy_source: true,
+        };
+    }
+
+    RemuxTarget {
+        extension: "mp4",
+        format: None,
+        faststart: true,
+        copy_source: false,
+    }
+}
+
+fn matroska_prefers_webm(media: &Path) -> bool {
+    let Some((video_codec, audio_codec)) = primary_stream_codecs(media) else {
+        return true;
+    };
+
+    let video_ok = video_codec
+        .as_deref()
+        .map(|codec| matches!(codec, "vp8" | "vp9" | "av1"))
+        .unwrap_or(false);
+    let audio_ok = audio_codec
+        .as_deref()
+        .map(|codec| matches!(codec, "opus" | "vorbis"))
+        .unwrap_or(true);
+
+    video_ok && audio_ok
+}
+
+fn primary_stream_codecs(media: &Path) -> Option<(Option<String>, Option<String>)> {
+    let ffprobe = find_tool("ffprobe")?;
+    let path_arg = media.display().to_string();
+    let output = command_output_text(
+        &ffprobe,
+        &[
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type,codec_name",
+            "-of",
+            "csv=p=0",
+            path_arg.as_str(),
+        ],
+    )
+    .ok()?;
+
+    let mut video_codec = None;
+    let mut audio_codec = None;
+    for line in output.lines() {
+        let mut fields = line.split(',').map(|field| field.trim().to_ascii_lowercase());
+        let Some(codec) = fields.next().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let Some(kind) = fields.next().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        if kind == "video" && video_codec.is_none() {
+            video_codec = Some(codec);
+        } else if kind == "audio" && audio_codec.is_none() {
+            audio_codec = Some(codec);
+        }
+    }
+
+    Some((video_codec, audio_codec))
 }
 
 fn media_file_from_path(media: PathBuf) -> Result<MediaFile, String> {
@@ -3394,6 +3754,26 @@ fn detect_gstreamer() -> PlaybackBackendStatus {
         version,
         path: launch.or(play).map(|path| path.display().to_string()),
         hint,
+    }
+}
+
+fn detect_mpv() -> PlaybackBackendStatus {
+    let mpv = find_tool("mpv");
+    let version = mpv
+        .as_ref()
+        .and_then(|path| command_first_line(path, &["--version"]));
+
+    PlaybackBackendStatus {
+        id: "mpv".to_string(),
+        name: "MPV".to_string(),
+        role: "fallback".to_string(),
+        available: mpv.is_some(),
+        version,
+        path: mpv.map(|path| path.display().to_string()),
+        hint: Some(
+            "Optional external playback path for difficult containers and codec-heavy files."
+                .to_string(),
+        ),
     }
 }
 

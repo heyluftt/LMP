@@ -53,7 +53,7 @@ const capabilityByMode: Record<MediaMode, MediaCapabilities> = {
     documentPrint: false,
     textTools: false,
     miniPlayer: false,
-    shelves: [],
+    shelves: ["settings"],
   },
   video: {
     mode: "video",
