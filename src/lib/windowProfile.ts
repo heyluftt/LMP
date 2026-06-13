@@ -209,6 +209,7 @@ export async function applyVideoWindowAspect(
   videoHeight: number,
   centerAfterResize: boolean,
   isCurrent: () => boolean = () => true,
+  skipWhenUnfocused = false,
 ) {
   if (
     !Number.isFinite(videoWidth) ||
@@ -228,6 +229,9 @@ export async function applyVideoWindowAspect(
     const isFullscreen = await window.isFullscreen();
     const scaleFactor = await window.scaleFactor();
     if (isMaximized || isFullscreen) {
+      return;
+    }
+    if (skipWhenUnfocused && !(await window.isFocused())) {
       return;
     }
 

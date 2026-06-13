@@ -1,11 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ArrowLeft, Disc3, Maximize2, Minimize2, Minus, Square, X } from "lucide-react";
+import { ArrowLeft, Disc3, Minimize2, Minus, Square, X } from "lucide-react";
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useRef } from "react";
+
+import { MiniPlayerChrome } from "./MiniPlayerChrome";
 
 type WindowChromeProps = {
   title: string;
@@ -70,6 +72,17 @@ export function WindowChrome({
     void appWindow.toggleMaximize();
   };
 
+  if (miniPlayer) {
+    return (
+      <header
+        className="window-titlebar mini-titlebar"
+        onPointerDown={startWindowDrag}
+      >
+        <MiniPlayerChrome onExitMiniPlayer={onToggleMiniPlayer} />
+      </header>
+    );
+  }
+
   return (
     <header className="window-titlebar" onPointerDown={startWindowDrag} onDoubleClick={toggleWindowMaximize}>
       <div className="window-title">
@@ -104,10 +117,10 @@ export function WindowChrome({
           <button
             type="button"
             onClick={onToggleMiniPlayer}
-            title={miniPlayer ? "Exit mini player" : "Mini player"}
-            aria-label={miniPlayer ? "Exit mini player" : "Mini player"}
+            title="Mini player"
+            aria-label="Mini player"
           >
-            {miniPlayer ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            <Minimize2 size={13} />
           </button>
         ) : null}
         <button type="button" onClick={() => void appWindow.minimize()} title="Minimize" aria-label="Minimize">

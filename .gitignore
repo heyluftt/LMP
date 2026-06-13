@@ -40,6 +40,8 @@ Thumbs.db
 # Large local helper binaries are bundled into release builds locally.
 # Keep the license text, but do not commit the binary tools themselves.
 src-tauri/binaries/tools/*.exe
+src-tauri/binaries/tools/*.dll
+src-tauri/binaries/tools/mpv/
 !src-tauri/binaries/tools/LICENSE-FFmpeg.txt
 
 # Test media and exported clips

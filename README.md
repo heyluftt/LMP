@@ -2,7 +2,7 @@
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust.
 
-Current alpha: `v0.1.3-alpha`. Download the latest Windows package from the GitHub Releases page. Alpha builds are unsigned, so Windows SmartScreen may show a warning during download or installation.
+Current alpha: `v0.2.1-alpha`. Download the latest Windows package from the GitHub Releases page. Alpha builds are unsigned, so Windows SmartScreen may show a warning during download or installation.
 
 ## What It Does
 
@@ -16,11 +16,12 @@ LMP opens everyday media and document files from Windows Explorer or from inside
 - DOC/DOCX extracted text copy handling
 - recent files, library navigation, and multi-window Open With routing
 
-The first playback path uses the Windows/WebView media stack. LMP does not bundle mpv or VLC.
+The main playback path uses the Windows/WebView media stack. LMP also includes early Playback Engine v2 groundwork for future embedded fallback paths.
 
 ## Alpha Features
 
 - Video controls, queue, repeat current, subtitles, tracks/info shelves, A-B loop, moments, and accurate MP4 clip export.
+- Compact optional playback controls and a focused mini-player mode.
 - Audio playback with compact now-playing UI, metadata/artwork helpers, speed, volume, recents, and library.
 - Image/GIF viewer with zoom, fit, rotate, and navigation.
 - PDF viewer with page navigation, zoom, page overview, smooth scrolling, drag/pan, and print dialog.
@@ -34,7 +35,7 @@ The first playback path uses the Windows/WebView media stack. LMP does not bundl
 
 Release packages bundle FFmpeg and FFprobe helper tools for metadata, artwork, thumbnails, remux helpers, and clip export. The large helper binaries are not committed to the source repository.
 
-GStreamer is optional and not bundled. LMP can detect an installed runtime, but it is not a complete in-app fallback backend in this alpha.
+Playback Engine v2 and helper-engine detection are still in early alpha. They are not a replacement for the main playback path yet.
 
 Playback support depends on Windows/WebView codec availability. MP4/H.264 and common audio formats are the most reliable. MKV, TS, WebM, and less common codecs can vary by machine.
 
@@ -66,6 +67,8 @@ npm.cmd run verify:windows
 
 - [Project status](docs/PROJECT_STATUS.md)
 - [Alpha smoke checklist](docs/ALPHA_SMOKE_CHECKLIST.md)
+- [v0.2.1 alpha release notes](RELEASE_NOTES_v0.2.1-alpha.md)
+- [v0.2.0 alpha release notes](RELEASE_NOTES_v0.2.0-alpha.md)
 - [v0.1.3 alpha release notes](RELEASE_NOTES_v0.1.3-alpha.md)
 - [v0.1.2 alpha release notes](RELEASE_NOTES_v0.1.2-alpha.md)
 - [v0.1.0 alpha release notes](docs/RELEASE_NOTES_v0.1.0-alpha.md)

@@ -1,9 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod libmpv_runtime;
+mod native_video_surface;
 mod paths;
+mod terminal;
 mod window_state;
 mod word_document;
-mod terminal;
 
 use paths::lmp_data_dir;
 use serde::{Deserialize, Serialize};
@@ -77,9 +79,8 @@ const VIDEO_FILE_EXTENSIONS: &[&str] = &[
     "ogv", "3gp", "3g2", "flv", "f4v", "asf", "vob", "divx", "mxf",
 ];
 const AUDIO_FILE_EXTENSIONS: &[&str] = &[
-    "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "aif", "oga", "weba",
-    "caf", "amr", "mka", "mp2", "mpa", "ac3", "eac3", "dts", "dtshd", "ape", "alac", "au",
-    "snd",
+    "mp3", "flac", "wav", "m4a", "aac", "ogg", "opus", "wma", "aiff", "aif", "oga", "weba", "caf",
+    "amr", "mka", "mp2", "mpa", "ac3", "eac3", "dts", "dtshd", "ape", "alac", "au", "snd",
 ];
 const IMAGE_FILE_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "jfif", "png", "gif", "webp", "bmp", "avif", "svg", "ico", "tif", "tiff",
@@ -123,6 +124,9 @@ struct AppState {
     window_counter: Arc<Mutex<u64>>,
     gstreamer_session: Arc<Mutex<Option<GstreamerPlaybackState>>>,
     mpv_session: Arc<Mutex<Option<MpvPlaybackState>>>,
+    libmpv_session: Arc<Mutex<Option<libmpv_runtime::PlaybackSession>>>,
+    libmpv_render_session: Arc<Mutex<Option<libmpv_runtime::RenderPlaybackSession>>>,
+    native_video_surfaces: Arc<native_video_surface::NativeVideoSurfaceStore>,
 }
 
 impl AppState {
@@ -137,6 +141,9 @@ impl AppState {
             window_counter: Arc::new(Mutex::new(0)),
             gstreamer_session: Arc::new(Mutex::new(None)),
             mpv_session: Arc::new(Mutex::new(None)),
+            libmpv_session: Arc::new(Mutex::new(None)),
+            libmpv_render_session: Arc::new(Mutex::new(None)),
+            native_video_surfaces: Arc::new(native_video_surface::NativeVideoSurfaceStore::new()),
         }
     }
 }
@@ -176,7 +183,7 @@ struct EngineStatus {
     hint: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct PlaybackBackendStatus {
     id: String,
     name: String,
@@ -186,6 +193,8 @@ struct PlaybackBackendStatus {
     path: Option<String>,
     hint: Option<String>,
 }
+
+static LIBMPV_BACKEND_STATUS: OnceLock<PlaybackBackendStatus> = OnceLock::new();
 
 #[derive(Serialize)]
 struct GstreamerProbe {
@@ -207,6 +216,46 @@ struct MpvPlaybackSession {
     path: Option<String>,
     pid: Option<u32>,
     started_at: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibMpvCoreSession {
+    active: bool,
+    path: Option<String>,
+    started_at: Option<u64>,
+    ready: bool,
+    paused: bool,
+    position: f64,
+    duration: f64,
+    width: f64,
+    height: f64,
+    volume: f64,
+    speed: f64,
+    ended: bool,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibMpvRenderStatus {
+    available: bool,
+    symbols_loaded: bool,
+    software_context: bool,
+    opengl_surface_required: bool,
+    summary: String,
+    error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LibMpvRenderFrameProbe {
+    width: i32,
+    height: i32,
+    stride: usize,
+    touched_bytes: usize,
+    elapsed_ms: u128,
+    summary: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -389,6 +438,7 @@ fn main() {
                 );
                 restore_window_state(&window);
                 watch_window_state(&window);
+                watch_focus_debug(&window);
                 let app_state = app.state::<AppState>();
                 watch_window_registry_cleanup(&window, app_state.inner());
                 if main_startup_kind != "unknown" {
@@ -401,7 +451,7 @@ fn main() {
                         files.insert("main".to_string(), main_startup_files.clone());
                     };
                 }
-                if reveal_main_immediately || !main_startup_files.is_empty() {
+                if reveal_main_immediately {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
@@ -429,6 +479,22 @@ fn main() {
             start_mpv_playback,
             stop_mpv_playback,
             get_mpv_playback_session,
+            start_libmpv_core_session,
+            start_libmpv_surface_session,
+            start_libmpv_render_session,
+            stop_libmpv_core_session,
+            stop_libmpv_surface_session,
+            stop_libmpv_render_session,
+            get_libmpv_core_session,
+            get_libmpv_render_status,
+            probe_libmpv_render_frame,
+            show_native_video_surface,
+            hide_native_video_surface,
+            destroy_native_video_surface,
+            set_libmpv_core_paused,
+            seek_libmpv_core,
+            set_libmpv_core_volume,
+            set_libmpv_core_speed,
             transmux_for_native,
             choose_clip_output_path,
             export_video_clip,
@@ -452,6 +518,8 @@ fn main() {
             log_media_open_event,
             close_current_window,
             reveal_current_window,
+            reveal_current_window_without_focus,
+            log_frontend_playback_event,
             open_files_in_window,
             terminal::terminal_open,
             terminal::terminal_write,
@@ -616,7 +684,10 @@ fn defer_single_instance_reveal(app: &tauri::AppHandle) {
                 log_instance_event(
                     "single-instance-dispatch",
                     "primary",
-                    &format!("kind=reveal windowLabel={} shouldExit=false", window.label()),
+                    &format!(
+                        "kind=reveal windowLabel={} shouldExit=false",
+                        window.label()
+                    ),
                     &[],
                 );
                 if window.is_minimized().unwrap_or(false) {
@@ -801,6 +872,10 @@ fn record_window_files(state: &AppState, label: &str, files: &[String]) {
 }
 
 fn cleanup_window_registry(state: &AppState, label: &str) {
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let _ = state.native_video_surfaces.destroy_label(label);
     if let Ok(mut kinds) = state.window_media_kinds.lock() {
         kinds.remove(label);
     }
@@ -825,6 +900,41 @@ fn watch_window_registry_cleanup(window: &tauri::WebviewWindow, state: &AppState
                 &[],
             );
         }
+    });
+}
+
+fn watch_focus_debug(window: &tauri::WebviewWindow) {
+    let watched = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::Focused(focused) => {
+            log_playback_event(
+                "focus-debug-window-focused",
+                &format!("focused={focused} {}", window_runtime_state(&watched)),
+            );
+        }
+        WindowEvent::Resized(size) => {
+            log_playback_event(
+                "focus-debug-window-resized",
+                &format!(
+                    "size={}x{} {}",
+                    size.width,
+                    size.height,
+                    window_runtime_state(&watched)
+                ),
+            );
+        }
+        WindowEvent::Moved(position) => {
+            log_playback_event(
+                "focus-debug-window-moved",
+                &format!(
+                    "position={}x{} {}",
+                    position.x,
+                    position.y,
+                    window_runtime_state(&watched)
+                ),
+            );
+        }
+        _ => {}
     });
 }
 
@@ -946,6 +1056,58 @@ fn append_routing_log(line: &str) {
 fn log_instance_event(phase: &str, role: &str, detail: &str, files: &[String]) {
     let args = env::args().collect::<Vec<_>>();
     log_instance_event_with_args(phase, role, detail, &args, files);
+}
+
+fn log_playback_event(phase: &str, detail: &str) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_secs())
+        .unwrap_or(0);
+    let pid = std::process::id();
+    append_routing_log(&format!(
+        "{timestamp} phase=playback-{phase} pid={pid} {}\n",
+        compact_log_value(detail),
+    ));
+}
+
+fn window_runtime_state(window: &tauri::WebviewWindow) -> String {
+    let visible = window
+        .is_visible()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "err".to_string());
+    let minimized = window
+        .is_minimized()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "err".to_string());
+    let maximized = window
+        .is_maximized()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "err".to_string());
+    let fullscreen = window
+        .is_fullscreen()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "err".to_string());
+    let focused = window
+        .is_focused()
+        .map(|value| value.to_string())
+        .unwrap_or_else(|_| "err".to_string());
+    format!(
+        "windowLabel={} visible={visible} minimized={minimized} maximized={maximized} fullscreen={fullscreen} focused={focused}",
+        window.label()
+    )
+}
+
+#[tauri::command]
+fn log_frontend_playback_event(
+    window: tauri::WebviewWindow,
+    phase: String,
+    detail: String,
+) -> Result<(), String> {
+    log_playback_event(
+        &format!("focus-debug-{}", compact_log_value(&phase)),
+        &format!("{} {}", window_runtime_state(&window), compact_log_value(&detail)),
+    );
+    Ok(())
 }
 
 fn log_instance_event_with_args(
@@ -1259,6 +1421,7 @@ fn open_files_in_new_window(
         format!("Could not open media window: {error}")
     })?;
     watch_window_state(&window);
+    watch_focus_debug(&window);
     watch_window_registry_cleanup(&window, state);
 
     let reveal_window = window.clone();
@@ -1328,9 +1491,12 @@ fn window_profile_for_files(files: &[String]) -> WindowProfile {
 
 #[tauri::command]
 fn get_engine_status() -> EngineStatus {
+    let libmpv = detect_libmpv();
     let gstreamer = detect_gstreamer();
     let mpv = detect_mpv();
-    let fallback_hint = if gstreamer.available {
+    let fallback_hint = if libmpv.available {
+        "An embedded MPV runtime is detected for the next playback backend.".to_string()
+    } else if gstreamer.available {
         "GStreamer fallback tools are detected and ready for the next playback path.".to_string()
     } else if mpv.available {
         "MPV is detected for optional external playback tests.".to_string()
@@ -1342,9 +1508,7 @@ fn get_engine_status() -> EngineStatus {
     EngineStatus {
         available: true,
         name: "Native WebView media engine".to_string(),
-        hint: Some(format!(
-            "Uses the OS/WebView media stack. {fallback_hint}"
-        )),
+        hint: Some(format!("Uses the OS/WebView media stack. {fallback_hint}")),
     }
 }
 
@@ -1352,6 +1516,7 @@ fn get_engine_status() -> EngineStatus {
 fn get_playback_backends() -> Vec<PlaybackBackendStatus> {
     vec![
         detect_native_backend(),
+        detect_libmpv(),
         detect_mpv(),
         detect_gstreamer(),
         detect_ffmpeg_helper(),
@@ -1738,23 +1903,61 @@ fn take_startup_files(
 
 #[tauri::command]
 fn reveal_current_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    reveal_window(window, true)
+}
+
+#[tauri::command]
+fn reveal_current_window_without_focus(window: tauri::WebviewWindow) -> Result<(), String> {
+    reveal_window(window, false)
+}
+
+fn reveal_window(window: tauri::WebviewWindow, focus: bool) -> Result<(), String> {
+    let is_minimized = window.is_minimized().unwrap_or(false);
+    let is_visible = window.is_visible().unwrap_or(false);
     log_instance_event(
-        "window-reveal",
+        if focus {
+            "window-reveal"
+        } else {
+            "window-reveal-passive"
+        },
         "primary",
-        &format!("windowLabel={} shouldExit=false", window.label()),
+        &format!(
+            "windowLabel={} focus={} shouldExit=false",
+            window.label(),
+            focus
+        ),
         &[],
     );
-    if window.is_minimized().unwrap_or(false) {
+    log_playback_event(
+        "focus-debug-reveal-request",
+        &format!("focus={focus} {}", window_runtime_state(&window)),
+    );
+
+    if !focus {
+        log_playback_event(
+            "focus-debug-reveal-passive-skip",
+            &format!("focus=false {}", window_runtime_state(&window)),
+        );
+        return Ok(());
+    }
+
+    if is_minimized {
         window
             .unminimize()
             .map_err(|error| format!("Could not unminimize window: {error}"))?;
     }
-    window
-        .show()
-        .map_err(|error| format!("Could not show window: {error}"))?;
+    if !is_visible {
+        window
+            .show()
+            .map_err(|error| format!("Could not show window: {error}"))?;
+    }
     window
         .set_focus()
         .map_err(|error| format!("Could not focus window: {error}"))?;
+    log_playback_event(
+        "focus-debug-reveal-focused",
+        &format!("focus=true {}", window_runtime_state(&window)),
+    );
     Ok(())
 }
 
@@ -1940,24 +2143,12 @@ fn start_mpv_playback(
     start_seconds: Option<f64>,
     state: tauri::State<'_, AppState>,
 ) -> Result<MpvPlaybackSession, String> {
-    let media = validated_external_playback_media(&path, "MPV")?;
-    let child = spawn_mpv_child(&media, start_seconds)?;
-    let pid = child.id();
-    let started_at = unix_now_seconds();
-
-    let mut session = state
-        .mpv_session
-        .lock()
-        .map_err(|_| "Could not update MPV session.".to_string())?;
-
-    *session = Some(MpvPlaybackState {
-        path: media.display().to_string(),
-        pid,
-        started_at,
-        child,
-    });
-
-    Ok(mpv_session_snapshot(&mut session))
+    log_playback_event(
+        "external-mpv-blocked",
+        &format!("path=\"{path}\" start={start_seconds:?}"),
+    );
+    let _ = state;
+    Err("External MPV playback is disabled for the embedded playback path.".to_string())
 }
 
 #[tauri::command]
@@ -1981,6 +2172,326 @@ fn get_mpv_playback_session(
         .map_err(|_| "Could not read MPV session.".to_string())?;
 
     Ok(mpv_session_snapshot(&mut session))
+}
+
+#[tauri::command]
+fn start_libmpv_core_session(
+    path: String,
+    start_seconds: Option<f64>,
+    volume: Option<f64>,
+    speed: Option<f64>,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    log_playback_event(
+        "libmpv-core-request",
+        &format!(
+            "path=\"{path}\" start={start_seconds:?} volume={volume:?} speed={speed:?}"
+        ),
+    );
+    let media = validated_external_playback_media(&path, "Embedded MPV")?;
+    let runtime = find_runtime_file(libmpv_runtime::runtime_names())
+        .ok_or_else(|| "Embedded MPV runtime was not found.".to_string())?;
+    log_playback_event(
+        "libmpv-core-runtime",
+        &format!("runtime=\"{}\"", runtime.display()),
+    );
+    let started_at = unix_now_seconds();
+    let session = libmpv_runtime::PlaybackSession::start(
+        runtime,
+        libmpv_runtime::PlaybackOptions {
+            path: media,
+            start_seconds,
+            volume: volume.unwrap_or(35.0).clamp(0.0, 100.0),
+            speed: speed.unwrap_or(1.0).clamp(0.25, 4.0),
+            started_at,
+            output: libmpv_runtime::PlaybackOutput::HeadlessCore,
+            autoplay: false,
+        },
+    )?;
+
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let mut current = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not update embedded MPV session.".to_string())?;
+    *current = Some(session);
+    Ok(libmpv_core_session_snapshot(&mut current))
+}
+
+#[tauri::command]
+fn start_libmpv_surface_session(
+    window: tauri::WebviewWindow,
+    path: String,
+    start_seconds: Option<f64>,
+    volume: Option<f64>,
+    speed: Option<f64>,
+    rect: native_video_surface::NativeVideoSurfaceRect,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    log_playback_event(
+        "libmpv-surface-request",
+        &format!(
+            "path=\"{path}\" start={start_seconds:?} volume={volume:?} speed={speed:?} rect={}x{}+{}+{}",
+            rect.width, rect.height, rect.left, rect.top
+        ),
+    );
+    let media = validated_external_playback_media(&path, "Embedded MPV")?;
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let surface = state.native_video_surfaces.show(&window, rect)?;
+    let hwnd = surface
+        .hwnd
+        .ok_or_else(|| "Native video surface did not return a window handle.".to_string())?;
+    let runtime = find_runtime_file(libmpv_runtime::runtime_names())
+        .ok_or_else(|| "Embedded MPV runtime was not found.".to_string())?;
+    log_playback_event(
+        "libmpv-surface-runtime",
+        &format!("runtime=\"{}\" hwnd={hwnd}", runtime.display()),
+    );
+    let started_at = unix_now_seconds();
+    let session = match libmpv_runtime::PlaybackSession::start(
+        runtime,
+        libmpv_runtime::PlaybackOptions {
+            path: media,
+            start_seconds,
+            volume: volume.unwrap_or(35.0).clamp(0.0, 100.0),
+            speed: speed.unwrap_or(1.0).clamp(0.25, 4.0),
+            started_at,
+            output: libmpv_runtime::PlaybackOutput::NativeSurface { hwnd },
+            autoplay: true,
+        },
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            let _ = state.native_video_surfaces.destroy_label(window.label());
+            return Err(error);
+        }
+    };
+
+    let mut current = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not update embedded MPV session.".to_string())?;
+    *current = Some(session);
+    Ok(libmpv_core_session_snapshot(&mut current))
+}
+
+#[tauri::command]
+fn start_libmpv_render_session(
+    window: tauri::WebviewWindow,
+    path: String,
+    start_seconds: Option<f64>,
+    volume: Option<f64>,
+    speed: Option<f64>,
+    rect: native_video_surface::NativeVideoSurfaceRect,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    log_playback_event(
+        "libmpv-render-request",
+        &format!(
+            "path=\"{path}\" start={start_seconds:?} volume={volume:?} speed={speed:?} rect={}x{}+{}+{} {}",
+            rect.width,
+            rect.height,
+            rect.left,
+            rect.top,
+            window_runtime_state(&window)
+        ),
+    );
+    let media = validated_external_playback_media(&path, "Embedded MPV")?;
+    if let Ok(mut core_session) = state.libmpv_session.lock() {
+        *core_session = None;
+    }
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let _ = state.native_video_surfaces.destroy_label(window.label());
+    let surface = state.native_video_surfaces.show(&window, rect)?;
+    let hwnd = surface
+        .hwnd
+        .ok_or_else(|| "Native video surface did not return a window handle.".to_string())?;
+    let runtime = find_runtime_file(libmpv_runtime::runtime_names())
+        .ok_or_else(|| "Embedded MPV runtime was not found.".to_string())?;
+    log_playback_event(
+        "libmpv-render-runtime",
+        &format!("runtime=\"{}\" hwnd={hwnd}", runtime.display()),
+    );
+    let started_at = unix_now_seconds();
+    let session = match libmpv_runtime::RenderPlaybackSession::start(
+        runtime,
+        libmpv_runtime::PlaybackOptions {
+            path: media,
+            start_seconds,
+            volume: volume.unwrap_or(35.0).clamp(0.0, 100.0),
+            speed: speed.unwrap_or(1.0).clamp(0.25, 4.0),
+            started_at,
+            output: libmpv_runtime::PlaybackOutput::NativeSurface { hwnd },
+            autoplay: true,
+        },
+    ) {
+        Ok(session) => session,
+        Err(error) => {
+            let _ = state.native_video_surfaces.destroy_label(window.label());
+            return Err(error);
+        }
+    };
+
+    let mut current = state
+        .libmpv_render_session
+        .lock()
+        .map_err(|_| "Could not update embedded MPV renderer session.".to_string())?;
+    *current = Some(session);
+    Ok(libmpv_render_session_snapshot(&mut current))
+}
+
+#[tauri::command]
+fn stop_libmpv_core_session(
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let mut session = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not stop embedded MPV session.".to_string())?;
+    *session = None;
+    Ok(empty_libmpv_core_session())
+}
+
+#[tauri::command]
+fn stop_libmpv_surface_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        *render_session = None;
+    }
+    let mut session = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not stop embedded MPV session.".to_string())?;
+    *session = None;
+    let _ = state.native_video_surfaces.hide(window.label());
+    Ok(empty_libmpv_core_session())
+}
+
+#[tauri::command]
+fn stop_libmpv_render_session(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    let mut session = state
+        .libmpv_render_session
+        .lock()
+        .map_err(|_| "Could not stop embedded MPV renderer session.".to_string())?;
+    *session = None;
+    let _ = state.native_video_surfaces.destroy_label(window.label());
+    Ok(empty_libmpv_core_session())
+}
+
+#[tauri::command]
+fn get_libmpv_core_session(state: tauri::State<'_, AppState>) -> Result<LibMpvCoreSession, String> {
+    if let Ok(mut session) = state.libmpv_render_session.lock() {
+        if session.is_some() {
+            return Ok(libmpv_render_session_snapshot(&mut session));
+        }
+    }
+    let mut session = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not read embedded MPV session.".to_string())?;
+    Ok(libmpv_core_session_snapshot(&mut session))
+}
+
+#[tauri::command]
+fn get_libmpv_render_status() -> LibMpvRenderStatus {
+    libmpv_render_status()
+}
+
+#[tauri::command]
+fn probe_libmpv_render_frame(path: String) -> Result<LibMpvRenderFrameProbe, String> {
+    let media = validated_external_playback_media(&path, "Embedded MPV")?;
+    let runtime = find_runtime_file(libmpv_runtime::runtime_names())
+        .ok_or_else(|| "Embedded MPV runtime was not found.".to_string())?;
+    let probe = libmpv_runtime::probe_render_frame(&runtime, &media)?;
+    Ok(LibMpvRenderFrameProbe {
+        width: probe.width,
+        height: probe.height,
+        stride: probe.stride,
+        touched_bytes: probe.touched_bytes,
+        elapsed_ms: probe.elapsed_ms,
+        summary: probe.summary,
+    })
+}
+
+#[tauri::command]
+fn show_native_video_surface(
+    window: tauri::WebviewWindow,
+    rect: native_video_surface::NativeVideoSurfaceRect,
+    state: tauri::State<'_, AppState>,
+) -> Result<native_video_surface::NativeVideoSurfaceStatus, String> {
+    state.native_video_surfaces.show(&window, rect)
+}
+
+#[tauri::command]
+fn hide_native_video_surface(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<native_video_surface::NativeVideoSurfaceStatus, String> {
+    state.native_video_surfaces.hide(window.label())
+}
+
+#[tauri::command]
+fn destroy_native_video_surface(
+    window: tauri::WebviewWindow,
+    state: tauri::State<'_, AppState>,
+) -> Result<native_video_surface::NativeVideoSurfaceStatus, String> {
+    state.native_video_surfaces.destroy_label(window.label())
+}
+
+#[tauri::command]
+fn set_libmpv_core_paused(
+    window: tauri::WebviewWindow,
+    paused: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    log_playback_event(
+        "focus-debug-libmpv-set-paused",
+        &format!("paused={paused} {}", window_runtime_state(&window)),
+    );
+    with_libmpv_core_session(&state, |session| session.pause(paused))
+}
+
+#[tauri::command]
+fn seek_libmpv_core(
+    window: tauri::WebviewWindow,
+    seconds: f64,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    log_playback_event(
+        "focus-debug-libmpv-seek",
+        &format!("seconds={seconds:.3} {}", window_runtime_state(&window)),
+    );
+    with_libmpv_core_session(&state, |session| session.seek(seconds))
+}
+
+#[tauri::command]
+fn set_libmpv_core_volume(
+    volume: f64,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    with_libmpv_core_session(&state, |session| session.set_volume(volume))
+}
+
+#[tauri::command]
+fn set_libmpv_core_speed(
+    speed: f64,
+    state: tauri::State<'_, AppState>,
+) -> Result<LibMpvCoreSession, String> {
+    with_libmpv_core_session(&state, |session| session.set_speed(speed))
 }
 
 #[tauri::command]
@@ -2286,7 +2797,9 @@ fn validated_external_playback_media(path: &str, engine_name: &str) -> Result<Pa
         return Err(format!("Unsupported file type: {}", media.display()));
     }
     if matches!(media_kind_label(&media), "image" | "document") {
-        return Err(format!("{engine_name} fallback is only used for audio and video files."));
+        return Err(format!(
+            "{engine_name} fallback is only used for audio and video files."
+        ));
     }
 
     Ok(media)
@@ -2314,8 +2827,8 @@ fn spawn_gstreamer_child(media: &Path) -> Result<Child, String> {
 }
 
 fn spawn_mpv_child(media: &Path, start_seconds: Option<f64>) -> Result<Child, String> {
-    let player =
-        find_tool("mpv").ok_or_else(|| "mpv was not found. Add mpv.exe to PATH or LMP tools.".to_string())?;
+    let player = find_tool("mpv")
+        .ok_or_else(|| "mpv was not found. Add mpv.exe to PATH or LMP tools.".to_string())?;
 
     let mut command = Command::new(player);
     command
@@ -2407,6 +2920,140 @@ fn empty_mpv_session() -> MpvPlaybackSession {
     }
 }
 
+trait EmbeddedMpvControl {
+    fn pause(&self, paused: bool) -> Result<(), String>;
+    fn seek(&self, seconds: f64) -> Result<(), String>;
+    fn set_volume(&self, volume: f64) -> Result<(), String>;
+    fn set_speed(&self, speed: f64) -> Result<(), String>;
+}
+
+impl EmbeddedMpvControl for libmpv_runtime::PlaybackSession {
+    fn pause(&self, paused: bool) -> Result<(), String> {
+        self.pause(paused)
+    }
+
+    fn seek(&self, seconds: f64) -> Result<(), String> {
+        self.seek(seconds)
+    }
+
+    fn set_volume(&self, volume: f64) -> Result<(), String> {
+        self.set_volume(volume)
+    }
+
+    fn set_speed(&self, speed: f64) -> Result<(), String> {
+        self.set_speed(speed)
+    }
+}
+
+impl EmbeddedMpvControl for libmpv_runtime::RenderPlaybackSession {
+    fn pause(&self, paused: bool) -> Result<(), String> {
+        self.pause(paused)
+    }
+
+    fn seek(&self, seconds: f64) -> Result<(), String> {
+        self.seek(seconds)
+    }
+
+    fn set_volume(&self, volume: f64) -> Result<(), String> {
+        self.set_volume(volume)
+    }
+
+    fn set_speed(&self, speed: f64) -> Result<(), String> {
+        self.set_speed(speed)
+    }
+}
+
+fn with_libmpv_core_session<F>(
+    state: &tauri::State<'_, AppState>,
+    operation: F,
+) -> Result<LibMpvCoreSession, String>
+where
+    F: FnOnce(&dyn EmbeddedMpvControl) -> Result<(), String>,
+{
+    if let Ok(mut render_session) = state.libmpv_render_session.lock() {
+        if let Some(current) = render_session.as_ref() {
+            operation(current)?;
+            return Ok(libmpv_render_session_snapshot(&mut render_session));
+        }
+    }
+
+    let mut session = state
+        .libmpv_session
+        .lock()
+        .map_err(|_| "Could not update embedded MPV session.".to_string())?;
+    let Some(current) = session.as_ref() else {
+        return Ok(empty_libmpv_core_session());
+    };
+    operation(current)?;
+    Ok(libmpv_core_session_snapshot(&mut session))
+}
+
+fn libmpv_snapshot_to_session(snapshot: libmpv_runtime::SessionSnapshot) -> LibMpvCoreSession {
+    LibMpvCoreSession {
+        active: snapshot.active && !snapshot.ended,
+        path: Some(snapshot.path),
+        started_at: Some(snapshot.started_at),
+        ready: snapshot.ready,
+        paused: snapshot.paused,
+        position: snapshot.position,
+        duration: snapshot.duration,
+        width: snapshot.width,
+        height: snapshot.height,
+        volume: snapshot.volume,
+        speed: snapshot.speed,
+        ended: snapshot.ended,
+        error: snapshot.error,
+    }
+}
+
+fn libmpv_core_session_snapshot(
+    session: &mut Option<libmpv_runtime::PlaybackSession>,
+) -> LibMpvCoreSession {
+    let Some(current) = session.as_ref() else {
+        return empty_libmpv_core_session();
+    };
+
+    let snapshot = current.snapshot();
+    if !snapshot.active || snapshot.ended {
+        *session = None;
+    }
+
+    libmpv_snapshot_to_session(snapshot)
+}
+
+fn libmpv_render_session_snapshot(
+    session: &mut Option<libmpv_runtime::RenderPlaybackSession>,
+) -> LibMpvCoreSession {
+    let Some(current) = session.as_ref() else {
+        return empty_libmpv_core_session();
+    };
+
+    let snapshot = current.snapshot();
+    if !snapshot.active || snapshot.ended {
+        *session = None;
+    }
+
+    libmpv_snapshot_to_session(snapshot)
+}
+
+fn empty_libmpv_core_session() -> LibMpvCoreSession {
+    LibMpvCoreSession {
+        active: false,
+        path: None,
+        started_at: None,
+        ready: false,
+        paused: true,
+        position: 0.0,
+        duration: 0.0,
+        width: 0.0,
+        height: 0.0,
+        volume: 0.0,
+        speed: 1.0,
+        ended: false,
+        error: None,
+    }
+}
+
 fn unix_now_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2441,7 +3088,9 @@ fn export_video_clip_sync(
         return Err("Clip export currently writes MP4 files only.".to_string());
     }
     if same_file_path(&input, &output) {
-        return Err("LMP will not overwrite the original video. Choose a new MP4 path.".to_string());
+        return Err(
+            "LMP will not overwrite the original video. Choose a new MP4 path.".to_string(),
+        );
     }
 
     if let Some(parent) = output.parent() {
@@ -2548,12 +3197,24 @@ fn export_video_clip_sync(
 
     loop {
         if is_clip_cancelled(&cancellations, &job_id) {
-            emit_clip_progress(&window, &job_id, last_progress.max(0.0), "canceling", Some("Canceling export...".to_string()));
+            emit_clip_progress(
+                &window,
+                &job_id,
+                last_progress.max(0.0),
+                "canceling",
+                Some("Canceling export...".to_string()),
+            );
             let _ = child.kill();
             let _ = child.wait();
             let _ = fs::remove_file(&temp_output);
             clear_clip_cancellation(&cancellations, &job_id);
-            emit_clip_progress(&window, &job_id, last_progress.max(0.0), "canceled", Some("Clip export canceled.".to_string()));
+            emit_clip_progress(
+                &window,
+                &job_id,
+                last_progress.max(0.0),
+                "canceled",
+                Some("Clip export canceled.".to_string()),
+            );
             return Err("Clip export canceled.".to_string());
         }
 
@@ -2601,7 +3262,13 @@ fn export_video_clip_sync(
         } else {
             compact_tool_output(&stderr, 1600)
         };
-        emit_clip_progress(&window, &job_id, last_progress.max(0.0), "error", Some(message.clone()));
+        emit_clip_progress(
+            &window,
+            &job_id,
+            last_progress.max(0.0),
+            "error",
+            Some(message.clone()),
+        );
         return Err(message);
     }
 
@@ -2612,7 +3279,13 @@ fn export_video_clip_sync(
     fs::rename(&temp_output, &output)
         .map_err(|error| format!("Could not save exported clip: {error}"))?;
 
-    emit_clip_progress(&window, &job_id, 1.0, "done", Some("Clip export complete.".to_string()));
+    emit_clip_progress(
+        &window,
+        &job_id,
+        1.0,
+        "done",
+        Some("Clip export complete.".to_string()),
+    );
     media_file_from_path(output)
 }
 
@@ -2796,6 +3469,10 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
 
     let stem = safe_file_stem(&media);
     let cache_key = media_cache_key(&media, &metadata);
+    if let Some(cached_output) = cached_transmux_output(&cache_dir, &stem, &cache_key) {
+        return media_file_from_path(cached_output);
+    }
+
     let target = remux_target_for_media(&media, &extension);
     let output = cache_dir.join(format!("{stem}-{cache_key}.{}", target.extension));
     if output.exists() && output.metadata().map(|item| item.len()).unwrap_or(0) > 0 {
@@ -2868,6 +3545,17 @@ fn transmux_for_native_sync(path: String) -> Result<MediaFile, String> {
     media_file_from_path(output)
 }
 
+fn cached_transmux_output(cache_dir: &Path, stem: &str, cache_key: &str) -> Option<PathBuf> {
+    ["mp4", "webm"].iter().find_map(|extension| {
+        let output = cache_dir.join(format!("{stem}-{cache_key}.{extension}"));
+        if output.exists() && output.metadata().map(|item| item.len()).unwrap_or(0) > 0 {
+            Some(output)
+        } else {
+            None
+        }
+    })
+}
+
 struct RemuxTarget {
     extension: &'static str,
     format: Option<&'static str>,
@@ -2930,7 +3618,9 @@ fn primary_stream_codecs(media: &Path) -> Option<(Option<String>, Option<String>
     let mut video_codec = None;
     let mut audio_codec = None;
     for line in output.lines() {
-        let mut fields = line.split(',').map(|field| field.trim().to_ascii_lowercase());
+        let mut fields = line
+            .split(',')
+            .map(|field| field.trim().to_ascii_lowercase());
         let Some(codec) = fields.next().filter(|value| !value.is_empty()) else {
             continue;
         };
@@ -3525,8 +4215,12 @@ fn settings_cache_status() -> Result<SettingsCacheStatus, String> {
 }
 
 fn cache_status_for_dir(path: &Path) -> Result<CacheStatus, String> {
-    fs::create_dir_all(path)
-        .map_err(|error| format!("Could not create cache directory {}: {error}", path.display()))?;
+    fs::create_dir_all(path).map_err(|error| {
+        format!(
+            "Could not create cache directory {}: {error}",
+            path.display()
+        )
+    })?;
     let (file_count, byte_len) = directory_size(path)?;
     Ok(CacheStatus {
         file_count,
@@ -3774,6 +4468,82 @@ fn detect_mpv() -> PlaybackBackendStatus {
             "Optional external playback path for difficult containers and codec-heavy files."
                 .to_string(),
         ),
+    }
+}
+
+fn detect_libmpv() -> PlaybackBackendStatus {
+    LIBMPV_BACKEND_STATUS
+        .get_or_init(detect_libmpv_uncached)
+        .clone()
+}
+
+fn detect_libmpv_uncached() -> PlaybackBackendStatus {
+    let libmpv = find_runtime_file(libmpv_runtime::runtime_names());
+    let validation = libmpv.as_ref().map(|path| libmpv_runtime::validate(path));
+    let render_probe = libmpv
+        .as_ref()
+        .filter(|_| validation.as_ref().is_some_and(|result| result.is_ok()))
+        .map(|path| libmpv_runtime::probe_render_api(path));
+    let available = validation
+        .as_ref()
+        .map(|result| result.is_ok())
+        .unwrap_or(false);
+    let version = validation
+        .as_ref()
+        .and_then(|result| result.as_ref().ok().cloned());
+    let hint = match (validation, render_probe) {
+        (Some(Ok(_)), Some(Ok(probe))) => probe.summary,
+        (Some(Ok(_)), Some(Err(error))) => {
+            format!("libmpv core is available, but the render API probe failed: {error}")
+        }
+        (Some(Ok(_)), None) => {
+            "Runtime found. Render API status has not been checked yet.".to_string()
+        }
+        (Some(Err(error)), _) => format!("libmpv was found but could not be loaded: {error}"),
+        (None, _) => "Place mpv-2.dll or libmpv-2.dll next to LMP tools to enable the embedded MPV runtime path."
+            .to_string(),
+    };
+
+    PlaybackBackendStatus {
+        id: "libmpv".to_string(),
+        name: "Embedded MPV Core".to_string(),
+        role: "fallback".to_string(),
+        available,
+        version,
+        path: libmpv.map(|path| path.display().to_string()),
+        hint: Some(hint),
+    }
+}
+
+fn libmpv_render_status() -> LibMpvRenderStatus {
+    let Some(runtime) = find_runtime_file(libmpv_runtime::runtime_names()) else {
+        return LibMpvRenderStatus {
+            available: false,
+            symbols_loaded: false,
+            software_context: false,
+            opengl_surface_required: true,
+            summary: "Embedded MPV runtime was not found.".to_string(),
+            error: None,
+        };
+    };
+
+    match libmpv_runtime::probe_render_api(&runtime) {
+        Ok(probe) => LibMpvRenderStatus {
+            available: probe.symbols_loaded && probe.software_context,
+            symbols_loaded: probe.symbols_loaded,
+            software_context: probe.software_context,
+            opengl_surface_required: probe.opengl_symbols,
+            summary: probe.summary,
+            error: None,
+        },
+        Err(error) => LibMpvRenderStatus {
+            available: false,
+            symbols_loaded: false,
+            software_context: false,
+            opengl_surface_required: true,
+            summary: "Embedded MPV render API is not ready.".to_string(),
+            error: Some(error),
+        },
     }
 }
 
@@ -4355,6 +5125,93 @@ fn find_tool(name: &str) -> Option<PathBuf> {
             candidates.push(dir.join(&executable));
             if cfg!(windows) && !executable.ends_with(".exe") {
                 candidates.push(dir.join(format!("{executable}.exe")));
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .find(|path| path.exists() && path.is_file())
+}
+
+fn find_runtime_file(names: &[&str]) -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(current_exe) = env::current_exe() {
+        if let Some(app_dir) = current_exe.parent() {
+            for name in names {
+                candidates.push(app_dir.join("tools").join(name));
+                candidates.push(app_dir.join("tools").join("mpv").join(name));
+                candidates.push(app_dir.join("binaries").join("tools").join(name));
+                candidates.push(
+                    app_dir
+                        .join("binaries")
+                        .join("tools")
+                        .join("mpv")
+                        .join(name),
+                );
+                candidates.push(app_dir.join("resources").join("tools").join(name));
+                candidates.push(
+                    app_dir
+                        .join("resources")
+                        .join("tools")
+                        .join("mpv")
+                        .join(name),
+                );
+                candidates.push(
+                    app_dir
+                        .join("resources")
+                        .join("binaries")
+                        .join("tools")
+                        .join(name),
+                );
+                candidates.push(
+                    app_dir
+                        .join("resources")
+                        .join("binaries")
+                        .join("tools")
+                        .join("mpv")
+                        .join(name),
+                );
+                candidates.push(app_dir.join(name));
+            }
+        }
+    }
+
+    if let Ok(current_dir) = env::current_dir() {
+        for name in names {
+            candidates.push(
+                current_dir
+                    .join("src-tauri")
+                    .join("binaries")
+                    .join("tools")
+                    .join(name),
+            );
+            candidates.push(
+                current_dir
+                    .join("src-tauri")
+                    .join("binaries")
+                    .join("tools")
+                    .join("mpv")
+                    .join(name),
+            );
+            candidates.push(current_dir.join("binaries").join("tools").join(name));
+            candidates.push(
+                current_dir
+                    .join("binaries")
+                    .join("tools")
+                    .join("mpv")
+                    .join(name),
+            );
+            candidates.push(current_dir.join("tools").join(name));
+            candidates.push(current_dir.join("tools").join("mpv").join(name));
+        }
+    }
+
+    if let Some(paths) = env::var_os("PATH") {
+        for dir in env::split_paths(&paths) {
+            for name in names {
+                candidates.push(dir.join(name));
             }
         }
     }

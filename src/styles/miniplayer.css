@@ -1,0 +1,194 @@
+.app-shell.with-media:has(.player-view.mini-player) {
+  position: relative;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  background: #020304;
+}
+
+.window-titlebar.mini-titlebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 24;
+  min-height: 32px;
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent);
+  box-shadow: none;
+}
+
+.window-titlebar.mini-titlebar .mini-window-controls {
+  margin-left: auto;
+  padding: 4px 4px 0 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.window-titlebar.mini-titlebar:hover .mini-window-controls,
+.window-titlebar.mini-titlebar .mini-window-controls:focus-within,
+.app-shell.with-media:has(.player-view.mini-player:hover) .mini-window-controls {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.app-shell.with-media:has(.player-view.mini-player) .window-titlebar.mini-titlebar .mini-window-controls button {
+  width: 28px;
+  height: 26px;
+  border-radius: 7px;
+  color: rgba(255, 248, 238, 0.82);
+  background: rgba(4, 6, 8, 0.24);
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55));
+  backdrop-filter: blur(10px);
+}
+
+.app-shell.with-media:has(.player-view.mini-player) .window-titlebar.mini-titlebar .mini-window-controls button:hover,
+.app-shell.with-media:has(.player-view.mini-player) .window-titlebar.mini-titlebar .mini-window-controls button:last-child:hover {
+  color: #fff8ee;
+  background: rgba(164, 234, 208, 0.16);
+}
+
+.player-view.mini-player {
+  border: 0;
+  border-radius: 0;
+  background: #020304;
+  box-shadow: none;
+}
+
+.player-view.mini-player .stage {
+  border-radius: 0;
+}
+
+.player-view.mini-player .video-overlay-header {
+  display: none;
+}
+
+.player-view.mini-player.video-mode .media-surface {
+  object-fit: contain;
+}
+
+.player-view.mini-player .transport-dock {
+  right: 7px;
+  bottom: 7px;
+  left: 7px;
+  width: auto;
+  gap: 4px;
+  padding: 6px;
+  border-color: rgba(255, 255, 255, 0.055);
+  background:
+    linear-gradient(180deg, rgba(4, 6, 7, 0.16), rgba(4, 6, 7, 0.34)),
+    rgba(4, 6, 7, 0.2);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+}
+
+.player-view.mini-player.video-mode .transport-dock,
+.player-view.mini-player.audio-mode .transport-dock {
+  transform: none;
+}
+
+.player-view.mini-player.controls-hidden .transport-dock,
+.player-view.mini-player.video-mode.controls-hidden .transport-dock,
+.player-view.mini-player.audio-mode.controls-hidden .transport-dock {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(10px);
+}
+
+.player-view.mini-player:hover .transport-dock,
+.player-view.mini-player .transport-dock:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.player-view.mini-player .scrub-row {
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  gap: 7px;
+  font-size: 10px;
+}
+
+.player-view.mini-player .timeline-wrap {
+  --timeline-thumb-size: 13px;
+  --timeline-track-height: 4px;
+  height: 18px;
+}
+
+.player-view.mini-player .timeline-input {
+  height: 18px;
+}
+
+.player-view.mini-player .timeline-input::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.player-view.mini-player .timeline-input::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  margin-top: -4.5px;
+  box-shadow: 0 0 0 3px rgba(164, 234, 208, 0.11);
+}
+
+.player-view.mini-player .control-row {
+  grid-template-columns: 1fr;
+  gap: 5px;
+  justify-items: center;
+}
+
+.player-view.mini-player .control-meta,
+.player-view.mini-player .control-cluster.secondary,
+.player-view.mini-player .compact-hide {
+  display: none;
+}
+
+.player-view.mini-player .control-cluster {
+  gap: 6px;
+}
+
+.player-view.mini-player .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.player-view.mini-player .play-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+}
+
+.player-view.mini-player.audio-mode .stage {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(164, 234, 208, 0.08), transparent 42%),
+    #040506;
+}
+
+.player-view.mini-player.audio-mode .now-playing.audio-panel {
+  width: min(280px, calc(100% - 20px));
+}
+
+.player-view.mini-player.audio-mode .now-playing.audio-panel .media-orb {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 8px;
+}
+
+.player-view.mini-player.audio-mode .audio-bars,
+.player-view.mini-player.audio-mode .now-playing.audio-panel span {
+  display: none;
+}
+
+.player-view.mini-player.audio-mode .now-playing p {
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+
+.player-view.mini-player.audio-mode .now-playing.audio-panel h1 {
+  font-size: clamp(21px, 8vw, 30px);
+  line-height: 1;
+}

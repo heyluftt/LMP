@@ -1,11 +1,11 @@
 {
-    "version":  "0.2.0",
-    "notes":  "Patch/feature alpha after v0.1.3-alpha.\n\n- Adds LMP Home hub.\n- Improves video window sizing and overlay controls.\n- Adds Playback Engine v2 foundation.\n- Improves playback startup and resume behavior.\n- Improves settings, updater, and cache support.",
-    "pub_date":  "2026-06-08T12:48:56Z",
-    "platforms":  {
-                      "windows-x86_64":  {
-                                             "url":  "https://github.com/heyluftt/LMP/releases/download/v0.2.0-alpha/LMP_0.2.0_x64-setup.exe",
-                                             "signature":  "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRcGFaTTA4UUQ0cWw0UHphTXdpMmEyRHMzVzNKUG81aWFPRkZ3UDB2VGYwYW14WTZ6ZlBWOXFPS3hvOVNSaWNPM1NrM1hsRWNITXAxelFqb25qWGwyalRFbXRkdFVqTXc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgwOTIyODk1CWZpbGU6TE1QXzAuMi4wX3g2NC1zZXR1cC5leGUKQkxUK0lYM00rMjBEREpLbUdJRXh0K1I2TjNRYnR3dkFNNTY2NzR6ajNHVmdOSDNkaXM1cjUrb3ZwcUgraU5CVTNFbyszNEtvdDY1Rkt5dTRuL0lYQnc9PQo="
-                                         }
-                  }
+  "version": "0.2.1",
+  "notes": "Patch alpha after v0.2.0-alpha.\n\n- Refines the optional compact playback bar.\n- Improves mini-player behavior.\n- Reduces mini-player chrome and metadata overlays.\n- Improves video overlay polish and startup smoothness.\n- Continues Playback Engine v2 groundwork.",
+  "pub_date": "2026-06-13T12:57:34Z",
+  "platforms": {
+    "windows-x86_64": {
+      "url": "https://github.com/heyluftt/LMP/releases/download/v0.2.1-alpha/LMP_0.2.1_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRcGFaTTA4UUQ0cWdyWGphTGdCQ1ZPeFUwcDNxZUI4dXpXdk41S3hlUlZxUXVBc3N5SHVRamhsTU42MzA1UHNKVXYvVTlaTTR5VEkrYnNUSkhBVDQvS0duNWJEalVxZ3d3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzgxMzU1NDA1CWZpbGU6TE1QXzAuMi4xX3g2NC1zZXR1cC5leGUKY2tZZDdRZzRPUnB5dVUrMzlyVXZvWGN4UWNnV3ZHQ1FtbnlDcmdFeDFWVFlaOTJRb2Y4K2t6YXpuWTBXdWZVbklkZ3pjSkswRjAzMmJHa1U5RkJQRFE9PQo="
+    }
+  }
 }

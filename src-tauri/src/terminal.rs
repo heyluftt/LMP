@@ -93,7 +93,11 @@ fn close_existing_session(state: &TerminalState, id: &str) {
 }
 
 fn remove_terminal_session(state: &TerminalState, id: &str) -> Option<TerminalSession> {
-    state.sessions.lock().ok().and_then(|mut sessions| sessions.remove(id))
+    state
+        .sessions
+        .lock()
+        .ok()
+        .and_then(|mut sessions| sessions.remove(id))
 }
 
 fn finish_terminal_session(mut session: TerminalSession) {
@@ -260,10 +264,7 @@ pub fn terminal_resize(
 }
 
 #[tauri::command]
-pub fn terminal_kill(
-    state: State<'_, TerminalState>,
-    id: String,
-) -> Result<(), String> {
+pub fn terminal_kill(state: State<'_, TerminalState>, id: String) -> Result<(), String> {
     if let Some(session) = remove_terminal_session(state.inner(), id.trim()) {
         finish_terminal_session(session);
     }

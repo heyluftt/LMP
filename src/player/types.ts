@@ -1,6 +1,6 @@
 import type { MediaKind } from "../lib/playerBrain";
 
-export type EngineName = "native-webview" | "mpv" | "gstreamer" | "ffmpeg-helper";
+export type EngineName = "native-webview" | "libmpv" | "mpv" | "gstreamer" | "ffmpeg-helper";
 
 export type EngineStatus = {
   available: boolean;
@@ -35,6 +35,40 @@ export type MpvPlaybackSession = {
   path?: string | null;
   pid?: number | null;
   started_at?: number | null;
+};
+
+export type LibMpvCoreSession = {
+  active: boolean;
+  path?: string | null;
+  startedAt?: number | null;
+  ready: boolean;
+  paused: boolean;
+  position: number;
+  duration: number;
+  width: number;
+  height: number;
+  volume: number;
+  speed: number;
+  ended: boolean;
+  error?: string | null;
+};
+
+export type LibMpvRenderStatus = {
+  available: boolean;
+  symbolsLoaded: boolean;
+  softwareContext: boolean;
+  openglSurfaceRequired: boolean;
+  summary: string;
+  error?: string | null;
+};
+
+export type LibMpvRenderFrameProbe = {
+  width: number;
+  height: number;
+  stride: number;
+  touchedBytes: number;
+  elapsedMs: number;
+  summary: string;
 };
 
 export type MediaInspectionItem = {
@@ -123,6 +157,23 @@ export type PlayerSnapshot = {
 };
 
 export type PlaybackEngineId = "native-webview" | "libmpv" | "lmp-av";
+
+export type NativeVideoSurfaceRect = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+export type NativeVideoSurfaceStatus = {
+  available: boolean;
+  active: boolean;
+  label: string;
+  hwnd: number | null;
+  rect: NativeVideoSurfaceRect;
+  visible: boolean;
+  summary: string;
+};
 
 export type PlaybackEngineLoadOptions = {
   source: string;

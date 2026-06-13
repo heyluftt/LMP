@@ -64,13 +64,22 @@ import {
 import {
   compactProbeSummary,
   emptyGstreamerSession,
+  emptyLibMpvCoreSession,
   emptyMpvSession,
   isGstreamerActiveFor,
+  isLibMpvActiveFor,
   isMpvActiveFor,
   probeGstreamer,
+  readLibMpvCoreSession,
   readMpvPlaybackSession,
   readGstreamerPlaybackSession,
+  seekLibMpvCore,
+  setLibMpvCorePaused,
+  showNativeVideoSurface,
+  startLibMpvRenderSession,
   startGstreamerPlayback,
+  stopLibMpvSurfaceSession,
+  stopLibMpvRenderSession,
   stopMpvPlayback,
   stopGstreamerPlayback,
 } from "./player/fallbackEngine";
@@ -80,6 +89,7 @@ import {
   mediaModeFor,
   type ShelfCapability,
 } from "./player/capabilities";
+import { createLibMpvPlaybackEngine } from "./player/libMpvEngine";
 import { createNativePlaybackEngine } from "./player/nativeEngine";
 import {
   clampMediaTime,
@@ -88,6 +98,13 @@ import {
   shouldKeepOptimisticSeek,
   type PendingSeekState,
 } from "./player/playbackSmoothing";
+import {
+  canTryRemuxFallback,
+  canUseDirectAfterPrepFailure,
+  playbackBackendHint,
+  playbackPathLabel,
+  resolvePlaybackStartupPlan,
+} from "./player/playbackEnginePolicy";
 import { ResumeController } from "./player/resumeController";
 import { defaultSettings, readSettings, updateSettings } from "./player/settings";
 import type { PlayerSettings } from "./player/settings";
@@ -134,6 +151,7 @@ import type {
   ClipExportProgress,
   ClipPresetId,
   GstreamerPlaybackSession,
+  LibMpvCoreSession,
   MediaInspection,
   MediaInspectionItem,
   MediaFile,
@@ -141,6 +159,7 @@ import type {
   MediaFolderItem,
   Moment,
   MpvPlaybackSession,
+  NativeVideoSurfaceRect,
   PlaybackEngine,
   PlaybackBackendStatus,
   PlayerCommand,
@@ -249,7 +268,8 @@ const playbackPositionRenderIntervalMs = 220;
 const playbackPositionJumpThresholdSeconds = 0.45;
 const playbackProgressAttemptIntervalMs = 750;
 const startupDiagnosticsDelayMs = 450;
-const visiblePreparationDelayMs = 900;
+const visiblePreparationDelayMs = 1200;
+const deferredMediaDetailsDelayMs = 180;
 const homeSourceUrl = "lmp://home";
 const newTextSourceUrl = "lmp://new-text";
 
@@ -406,6 +426,19 @@ function compactError(error: unknown) {
   return `${message.slice(0, 217)}...`;
 }
 
+function compactDebugValue(value: unknown) {
+  return String(value ?? "-")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, "_")
+    .slice(0, 180);
+}
+
+function formatDebugDetails(details: Record<string, unknown>) {
+  return Object.entries(details)
+    .map(([key, value]) => `${key}=${compactDebugValue(value)}`)
+    .join(" ");
+}
+
 function nextAnimationFrame() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -523,30 +556,6 @@ function isUnsupportedSourceError(error: unknown, media?: HTMLMediaElement) {
     message.includes("notsupportederror") ||
     message.includes("supported sources")
   );
-}
-
-function canTryRemuxFallback(path: string | null) {
-  if (!path) {
-    return false;
-  }
-
-  return ["ts", "mts", "m2ts", "mp4", "m4v", "mov", "mkv"].includes(mediaExtension(path));
-}
-
-function shouldPrepareBeforeNativeLoad(path: string | null) {
-  if (!path) {
-    return false;
-  }
-
-  return ["ts", "mts", "m2ts", "mkv"].includes(mediaExtension(path));
-}
-
-function canUseDirectAfterPrepFailure(path: string | null) {
-  if (!path) {
-    return false;
-  }
-
-  return mediaExtension(path) === "mkv";
 }
 
 function describePlaybackProblem(error: unknown, media?: HTMLMediaElement, path?: string | null) {
@@ -787,6 +796,7 @@ function App() {
   const windowLabel = getCurrentWindow().label;
   const mediaRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<HTMLElement | null>(null);
+  const nativeVideoSurfaceRef = useRef<HTMLDivElement | null>(null);
 
   const [engineStatus, setEngineStatus] = useState<EngineStatus>({
     available: true,
@@ -796,10 +806,13 @@ function App() {
   const [gstreamerSession, setGstreamerSession] =
     useState<GstreamerPlaybackSession>(emptyGstreamerSession);
   const [mpvSession, setMpvSession] = useState<MpvPlaybackSession>(emptyMpvSession);
+  const [libMpvSession, setLibMpvSession] =
+    useState<LibMpvCoreSession>(emptyLibMpvCoreSession);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [sourceUrl, setSourceUrl] = useState<string | null>(null);
   const [currentMedia, setCurrentMedia] = useState<MediaFile | null>(null);
   const [openingMedia, setOpeningMedia] = useState<OpeningMediaState | null>(null);
+  const [startupFilesSettled, setStartupFilesSettled] = useState(false);
   const [queue, setQueue] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>(() => readRecent());
   const [paused, setPaused] = useState(true);
@@ -864,6 +877,7 @@ function App() {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [controlsPinned, setControlsPinned] = useState(false);
   const [controlActivity, setControlActivity] = useState(0);
+  const [videoCursorHidden, setVideoCursorHidden] = useState(false);
   const volumeRef = useRef(volume);
   const lastControlRevealRef = useRef(0);
   const loadIdRef = useRef(0);
@@ -898,6 +912,15 @@ function App() {
   const subtitleUrlRef = useRef<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const windowRevealTimerRef = useRef<number | null>(null);
+  const windowRevealFocusRef = useRef(true);
+  const mediaReadyRevealSuppressRef = useRef<{
+    loadId: number;
+    reason: string;
+    until: number;
+  } | null>(null);
+  const deferredWindowRevealTimerRef = useRef<number | null>(null);
+  const deferredWindowRevealFrameRef = useRef<number | null>(null);
+  const videoCursorHideTimerRef = useRef<number | null>(null);
   const videoWindowAspectTokenRef = useRef<string | null>(null);
   const videoWindowAspectRetryRef = useRef<number | null>(null);
   const homeProfileAppliedRef = useRef(false);
@@ -907,6 +930,37 @@ function App() {
   const speedRef = useRef(speed);
   settingsRef.current = settings;
   speedRef.current = speed;
+
+  const tracePlaybackFocus = useCallback((phase: string, details: Record<string, unknown> = {}) => {
+    const activePath = activePlaybackPathRef.current;
+    void invoke("log_frontend_playback_event", {
+      phase,
+      detail: formatDebugDetails({
+        documentFocused: document.hasFocus(),
+        documentHidden: document.hidden,
+        focusWindow: windowRevealFocusRef.current,
+        loadId: loadIdRef.current,
+        activeTitle: activePath ? fileName(activePath) : "-",
+        ...details,
+      }),
+    }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const onFocus = () => tracePlaybackFocus("browser-window-focus");
+    const onBlur = () => tracePlaybackFocus("browser-window-blur");
+    const onVisibilityChange = () =>
+      tracePlaybackFocus("document-visibility", { hidden: document.hidden });
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [tracePlaybackFocus]);
 
   const cancelVideoWindowAspectRetry = useCallback(() => {
     if (videoWindowAspectRetryRef.current !== null) {
@@ -958,6 +1012,7 @@ function App() {
   const hasNextQueueItem = queueIndex >= 0 && queueIndex < queue.length - 1;
   const gstreamerActiveForCurrent = isGstreamerActiveFor(gstreamerSession, currentPath);
   const mpvActiveForCurrent = isMpvActiveFor(mpvSession, currentPath);
+  const libMpvActiveForCurrent = isLibMpvActiveFor(libMpvSession, currentPath);
   const externalPlaybackActiveForCurrent = gstreamerActiveForCurrent || mpvActiveForCurrent;
   const currentExtension = useMemo(() => (currentPath ? mediaExtension(currentPath) : ""), [currentPath]);
   const isVideo = currentKind === "video";
@@ -989,32 +1044,67 @@ function App() {
       const loadId = loadIdRef.current;
       const path = activePlaybackPathRef.current;
       if (miniPlayerActive) {
+        tracePlaybackFocus("video-aspect-skip", {
+          reason: "mini-player",
+          videoHeight,
+          videoWidth,
+        });
         return;
       }
       if (!path) {
+        tracePlaybackFocus("video-aspect-skip", {
+          reason: "no-path",
+          videoHeight,
+          videoWidth,
+        });
         return;
       }
       if (!videoWidth || !videoHeight) {
+        tracePlaybackFocus("video-aspect-skip", {
+          reason: "empty-dimensions",
+          videoHeight,
+          videoWidth,
+        });
         return;
       }
 
       const resizeId = `${loadId}:${path}`;
       if (videoWindowAspectTokenRef.current === resizeId) {
+        tracePlaybackFocus("video-aspect-skip", {
+          reason: "already-applied",
+          title: fileName(path),
+          videoHeight,
+          videoWidth,
+        });
         return;
       }
       videoWindowAspectTokenRef.current = resizeId;
       cancelVideoWindowAspectRetry();
+      tracePlaybackFocus("video-aspect-scheduled", {
+        center: settings.centerVideoWindowAfterResize,
+        skipWhenUnfocused: !windowRevealFocusRef.current,
+        title: fileName(path),
+        videoHeight,
+        videoWidth,
+      });
 
       const applyAspect = () => {
         const isCurrent = () =>
           loadId === loadIdRef.current &&
           activePlaybackPathRef.current === path;
         if (isCurrent()) {
+          tracePlaybackFocus("video-aspect-apply", {
+            skipWhenUnfocused: !windowRevealFocusRef.current,
+            title: fileName(path),
+            videoHeight,
+            videoWidth,
+          });
           void applyVideoWindowAspect(
             videoWidth,
             videoHeight,
             settings.centerVideoWindowAfterResize,
             isCurrent,
+            !windowRevealFocusRef.current,
           );
         }
       };
@@ -1025,7 +1115,12 @@ function App() {
         applyAspect();
       }, 220);
     },
-    [cancelVideoWindowAspectRetry, miniPlayerActive, settings.centerVideoWindowAfterResize],
+    [
+      cancelVideoWindowAspectRetry,
+      miniPlayerActive,
+      settings.centerVideoWindowAfterResize,
+      tracePlaybackFocus,
+    ],
   );
 
   useEffect(() => {
@@ -1050,11 +1145,30 @@ function App() {
   const supportsQueue = mediaCapabilities.queue;
   const supportsMoments = mediaCapabilities.moments;
   const supportsLoopPoints = mediaCapabilities.loopPoints;
-  const hasMedia = Boolean(sourceUrl || openingMedia || externalPlaybackActiveForCurrent);
+  const hasMedia = Boolean(
+    sourceUrl ||
+      openingMedia ||
+      externalPlaybackActiveForCurrent ||
+      libMpvActiveForCurrent,
+  );
+  const showHome = !hasMedia && startupFilesSettled;
 
   useEffect(() => {
-    if (hasMedia) {
-      homeProfileAppliedRef.current = false;
+    const appWindow = getCurrentWindow();
+    void appWindow.setAlwaysOnTop(miniPlayerActive).catch(() => undefined);
+
+    return () => {
+      if (miniPlayerActive) {
+        void appWindow.setAlwaysOnTop(false).catch(() => undefined);
+      }
+    };
+  }, [miniPlayerActive]);
+
+  useEffect(() => {
+    if (!showHome) {
+      if (hasMedia) {
+        homeProfileAppliedRef.current = false;
+      }
       return;
     }
     if (homeProfileAppliedRef.current) {
@@ -1062,26 +1176,11 @@ function App() {
     }
     homeProfileAppliedRef.current = true;
     void applyHomeWindowProfile();
-  }, [hasMedia]);
+  }, [hasMedia, showHome]);
 
-  const nativeBackend = playbackBackends.find((backend) => backend.id === "native-webview");
   const gstreamerBackend = playbackBackends.find((backend) => backend.id === "gstreamer");
-  const ffmpegBackend = playbackBackends.find((backend) => backend.id === "ffmpeg-helper");
-  const fallbackStatusLabel =
-    settings.fallbackEngine === "off"
-      ? "Fallback disabled"
-      : settings.fallbackEngine === "gstreamer"
-        ? gstreamerBackend?.available
-          ? "GStreamer selected"
-          : "GStreamer missing"
-        : "Auto: native first";
-  const backendHint = [
-    nativeBackend?.name ?? "Native WebView",
-    settings.fallbackEngine !== "off" ? fallbackStatusLabel : null,
-    ffmpegBackend?.available ? "FFmpeg helper ready" : null,
-  ]
-    .filter(Boolean)
-    .join(" - ");
+  const fallbackStatusLabel = playbackPathLabel(settings.fallbackEngine, playbackBackends);
+  const backendHint = playbackBackendHint(settings.fallbackEngine, playbackBackends);
   const activeSettingsTabs = settingsTabsFor(currentKind);
   const activeSettingsTab = activeSettingsTabs.some((tab) => tab.id === settingsTab)
     ? settingsTab
@@ -1143,14 +1242,17 @@ function App() {
   const playerViewClass = [
     "player-view",
     mediaMode !== "empty" ? `${mediaMode}-mode` : "",
-    !hasMedia ? "home-mode" : "",
+    showHome ? "home-mode" : "",
+    !hasMedia && !startupFilesSettled ? "startup-mode" : "",
     loopReady ? "loop-active" : "",
     loopArmed ? "loop-armed" : "",
     isFullscreen ? "fullscreen-mode" : "",
     miniPlayerActive ? "mini-player" : "",
     settings.minimalControls ? "minimal-controls" : "",
     openingMedia ? "opening-media" : "",
+    libMpvActiveForCurrent ? "libmpv-render-mode" : "",
     controlsHidden ? "controls-hidden" : "",
+    videoCursorHidden ? "cursor-hidden" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1319,20 +1421,58 @@ function App() {
 
   useEffect(() => () => resumeController.dispose(), [resumeController]);
 
-  const revealCurrentWindow = useCallback(() => {
+  const cancelDeferredWindowReveal = useCallback(() => {
+    if (deferredWindowRevealTimerRef.current !== null) {
+      window.clearTimeout(deferredWindowRevealTimerRef.current);
+      deferredWindowRevealTimerRef.current = null;
+    }
+    if (deferredWindowRevealFrameRef.current !== null) {
+      window.cancelAnimationFrame(deferredWindowRevealFrameRef.current);
+      deferredWindowRevealFrameRef.current = null;
+    }
+  }, []);
+
+  const revealCurrentWindow = useCallback((focus = true) => {
+    cancelDeferredWindowReveal();
     if (windowRevealTimerRef.current !== null) {
       window.clearTimeout(windowRevealTimerRef.current);
       windowRevealTimerRef.current = null;
     }
-    void invoke("reveal_current_window").catch(() => undefined);
-  }, []);
+    tracePlaybackFocus("reveal-now", { focus });
+    void invoke(focus ? "reveal_current_window" : "reveal_current_window_without_focus").catch(() => undefined);
+  }, [cancelDeferredWindowReveal, tracePlaybackFocus]);
+
+  const revealCurrentWindowAfterRender = useCallback((focus = true) => {
+    cancelDeferredWindowReveal();
+    if (windowRevealTimerRef.current !== null) {
+      window.clearTimeout(windowRevealTimerRef.current);
+      windowRevealTimerRef.current = null;
+    }
+    tracePlaybackFocus("reveal-after-render-scheduled", { focus });
+    deferredWindowRevealTimerRef.current = window.setTimeout(() => {
+      deferredWindowRevealTimerRef.current = null;
+      deferredWindowRevealFrameRef.current = window.requestAnimationFrame(() => {
+        deferredWindowRevealFrameRef.current = null;
+        tracePlaybackFocus("reveal-after-render-fire", { focus });
+        void invoke(focus ? "reveal_current_window" : "reveal_current_window_without_focus").catch(
+          () => undefined,
+        );
+      });
+    }, 0);
+  }, [cancelDeferredWindowReveal, tracePlaybackFocus]);
 
   const scheduleWindowRevealFallback = useCallback(
-    (path: string, loadId: number, delayMs = 1400) => {
+    (path: string, loadId: number, delayMs = 1400, focus = true) => {
       if (windowRevealTimerRef.current !== null) {
         window.clearTimeout(windowRevealTimerRef.current);
       }
 
+      tracePlaybackFocus("reveal-fallback-scheduled", {
+        delayMs,
+        focus,
+        loadId,
+        title: fileName(path),
+      });
       windowRevealTimerRef.current = window.setTimeout(() => {
         windowRevealTimerRef.current = null;
         const startupResume = startupResumeRef.current;
@@ -1341,11 +1481,27 @@ function App() {
           activePlaybackPathRef.current === path &&
           !(startupResume && startupResume.loadId === loadId && startupResume.path === path)
         ) {
-          void invoke("reveal_current_window").catch(() => undefined);
+          tracePlaybackFocus("reveal-fallback-fire", {
+            focus,
+            loadId,
+            title: fileName(path),
+          });
+          void invoke(focus ? "reveal_current_window" : "reveal_current_window_without_focus").catch(
+            () => undefined,
+          );
+        } else {
+          tracePlaybackFocus("reveal-fallback-skip", {
+            activeMatches: activePlaybackPathRef.current === path,
+            focus,
+            loadId,
+            loadMatches: loadIdRef.current === loadId,
+            startupResume: Boolean(startupResume),
+            title: fileName(path),
+          });
         }
       }, delayMs);
     },
-    [],
+    [tracePlaybackFocus],
   );
 
   const revealCurrentWindowWhenMediaReady = useCallback(
@@ -1360,11 +1516,28 @@ function App() {
         media.readyState >= 2 &&
         !(startupResume && startupResume.loadId === loadId && startupResume.path === currentPath)
       ) {
+        const suppress = mediaReadyRevealSuppressRef.current;
+        if (suppress && suppress.loadId === loadId) {
+          if (window.performance.now() < suppress.until) {
+            tracePlaybackFocus("media-ready-reveal-skip", {
+              loadId,
+              readyState: media.readyState,
+              reason: suppress.reason,
+            });
+            return;
+          }
+          mediaReadyRevealSuppressRef.current = null;
+        }
+        tracePlaybackFocus("media-ready-reveal", {
+          focus: windowRevealFocusRef.current,
+          loadId,
+          readyState: media.readyState,
+        });
         setOpeningMedia((current) => (current?.loadId === loadId ? null : current));
-        revealCurrentWindow();
+        revealCurrentWindow(windowRevealFocusRef.current);
       }
     },
-    [currentPath, revealCurrentWindow],
+    [currentPath, revealCurrentWindow, tracePlaybackFocus],
   );
 
   useEffect(
@@ -1373,8 +1546,9 @@ function App() {
         window.clearTimeout(windowRevealTimerRef.current);
         windowRevealTimerRef.current = null;
       }
+      cancelDeferredWindowReveal();
     },
-    [],
+    [cancelDeferredWindowReveal],
   );
 
   const scrollDocumentViewportTo = useCallback((scrollTarget: "top" | "bottom") => {
@@ -1516,6 +1690,53 @@ function App() {
     setDocumentView((current) => ({ ...current, page }));
   }, []);
 
+  const measureNativeVideoSurfaceRect = useCallback((): NativeVideoSurfaceRect | null => {
+    const element = nativeVideoSurfaceRef.current ?? playerRef.current;
+    const bounds = element?.getBoundingClientRect();
+    if (!bounds || bounds.width < 16 || bounds.height < 16) {
+      return null;
+    }
+
+    return {
+      left: Math.round(bounds.left),
+      top: Math.round(bounds.top),
+      width: Math.round(bounds.width),
+      height: Math.round(bounds.height),
+    };
+  }, []);
+
+  const syncNativeVideoSurfaceRect = useCallback(async () => {
+    if (!libMpvActiveForCurrent) {
+      return;
+    }
+
+    const rect = measureNativeVideoSurfaceRect();
+    if (!rect) {
+      return;
+    }
+
+    await showNativeVideoSurface(rect);
+  }, [libMpvActiveForCurrent, measureNativeVideoSurfaceRect]);
+
+  const stopTrackedLibMpvRender = useCallback(
+    async (silent = false) => {
+      try {
+        await stopLibMpvRenderSession().catch(() => emptyLibMpvCoreSession);
+        const session = await stopLibMpvSurfaceSession();
+        setLibMpvSession(session);
+        if (!silent) {
+          showToast("Embedded playback stopped.", "info");
+        }
+      } catch (error) {
+        setLibMpvSession(emptyLibMpvCoreSession);
+        if (!silent) {
+          showToast(compactError(error), "error");
+        }
+      }
+    },
+    [showToast],
+  );
+
   const stopTrackedGstreamer = useCallback(
     async (silent = false) => {
       try {
@@ -1536,9 +1757,12 @@ function App() {
   const startTrackedGstreamer = useCallback(
     async (path: string, summary?: string) => {
       await stopMpvPlayback().catch(() => emptyMpvSession);
+      await stopLibMpvRenderSession().catch(() => emptyLibMpvCoreSession);
+      await stopLibMpvSurfaceSession().catch(() => emptyLibMpvCoreSession);
       const session = await startGstreamerPlayback(path);
       setGstreamerSession(session);
       setMpvSession(emptyMpvSession);
+      setLibMpvSession(emptyLibMpvCoreSession);
       setPaused(true);
       showToast(
         summary
@@ -1566,6 +1790,115 @@ function App() {
       }
     },
     [showToast],
+  );
+
+  const startTrackedLibMpvRender = useCallback(
+    async (path: string, loadId: number, startSeconds?: number | null, focusWindow = true) => {
+      tracePlaybackFocus("libmpv-render-start-request", {
+        focusWindow,
+        loadId,
+        startSeconds: startSeconds ?? "-",
+        title: fileName(path),
+      });
+      await nextAnimationFrame();
+      if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== path) {
+        tracePlaybackFocus("libmpv-render-start-skip", {
+          reason: "stale-before-measure",
+          focusWindow,
+          loadId,
+          title: fileName(path),
+        });
+        return emptyLibMpvCoreSession;
+      }
+
+      const rect = measureNativeVideoSurfaceRect();
+      if (!rect) {
+        tracePlaybackFocus("libmpv-render-start-fail", {
+          reason: "no-surface-rect",
+          focusWindow,
+          loadId,
+          title: fileName(path),
+        });
+        throw new Error("Video surface is not ready yet.");
+      }
+      tracePlaybackFocus("libmpv-render-surface-measured", {
+        focusWindow,
+        loadId,
+        rect: `${rect.width}x${rect.height}+${rect.left}+${rect.top}`,
+        title: fileName(path),
+      });
+
+      let session: LibMpvCoreSession;
+      try {
+        session = await startLibMpvRenderSession(
+          path,
+          rect,
+          startSeconds ?? null,
+          volumeRef.current,
+          speedRef.current,
+        );
+      } catch (error) {
+        await stopLibMpvSurfaceSession().catch(() => emptyLibMpvCoreSession);
+        tracePlaybackFocus("libmpv-render-start-fail", {
+          error: compactError(error),
+          focusWindow,
+          loadId,
+          title: fileName(path),
+        });
+        throw new Error(`Render API failed: ${compactError(error)}`);
+      }
+      if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== path) {
+        tracePlaybackFocus("libmpv-render-start-skip", {
+          reason: "stale-after-start",
+          focusWindow,
+          loadId,
+          title: fileName(path),
+        });
+        void stopLibMpvRenderSession().catch(() => undefined);
+        void stopLibMpvSurfaceSession().catch(() => undefined);
+        return emptyLibMpvCoreSession;
+      }
+
+      setLibMpvSession(session);
+      setGstreamerSession(emptyGstreamerSession);
+      setMpvSession(emptyMpvSession);
+      setSourceUrl(null);
+      setDuration(session.duration || 0);
+      setPaused(session.paused);
+      commitPlaybackPosition(session.position || startSeconds || 0, true);
+      if (session.width > 0 && session.height > 0) {
+        setMediaDetails({
+          width: Math.round(session.width),
+          height: Math.round(session.height),
+          duration: session.duration > 0 ? session.duration : null,
+        });
+        if (focusWindow) {
+          scheduleVideoWindowAspectResize(session.width, session.height);
+        }
+      } else if (session.duration > 0) {
+        setMediaDetails((current) => ({
+          ...current,
+          duration: session.duration,
+        }));
+      }
+      setOpeningMedia(null);
+      revealCurrentWindow(focusWindow);
+      tracePlaybackFocus("libmpv-render-start-ok", {
+        duration: session.duration,
+        focusWindow,
+        loadId,
+        position: session.position,
+        title: fileName(path),
+      });
+      return session;
+    },
+    [
+      commitPlaybackPosition,
+      measureNativeVideoSurfaceRect,
+      revealCurrentWindow,
+      scheduleVideoWindowAspectResize,
+      tracePlaybackFocus,
+    ],
   );
 
   const inspectMedia = useCallback(async (path: string, loadId: number) => {
@@ -1612,6 +1945,21 @@ function App() {
       }
     }
   }, []);
+
+  const scheduleDeferredMediaDetails = useCallback(
+    (path: string, kind: MediaKind, loadId: number) => {
+      window.setTimeout(() => {
+        if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== path) {
+          return;
+        }
+        void inspectMedia(path, loadId);
+        if (kind === "audio") {
+          void loadAudioArtwork(path, loadId);
+        }
+      }, deferredMediaDetailsDelayMs);
+    },
+    [inspectMedia, loadAudioArtwork],
+  );
 
   const revokeSubtitleUrl = useCallback(() => {
     if (subtitleUrlRef.current) {
@@ -1911,7 +2259,9 @@ function App() {
   confirmWindowCloseRef.current = confirmWindowClose;
 
   const playPath = useCallback(
-    async (path: string, options: { skipTextGuard?: boolean } = {}) => {
+    async (path: string, options: { focusWindow?: boolean; skipTextGuard?: boolean } = {}) => {
+      const shouldFocusWindow = options.focusWindow ?? true;
+      windowRevealFocusRef.current = shouldFocusWindow;
       if (!options.skipTextGuard && !(await confirmTextNavigation(path))) {
         return;
       }
@@ -1922,7 +2272,7 @@ function App() {
         recentOpenRequest?.path === path &&
         now - recentOpenRequest.at < 1600
       ) {
-        revealCurrentWindow();
+        revealCurrentWindow(shouldFocusWindow);
         return;
       }
       recentOpenRequestRef.current = { path, at: now };
@@ -1932,6 +2282,7 @@ function App() {
       const optimisticKind = mediaKind(path);
       cancelVideoWindowAspectRetry();
       videoWindowAspectTokenRef.current = null;
+      mediaReadyRevealSuppressRef.current = null;
       pendingSeekRef.current = null;
       startupResumeRef.current = null;
       if (windowRevealTimerRef.current !== null) {
@@ -1941,6 +2292,7 @@ function App() {
       activePlaybackPathRef.current = null;
       void stopTrackedGstreamer(true);
       void stopTrackedMpv(true);
+      void stopTrackedLibMpvRender(true);
       abortNativeMediaLoad();
       setSourceUrl(null);
       setCurrentMedia(null);
@@ -1948,7 +2300,7 @@ function App() {
         activePlaybackPathRef.current = path;
         setCurrentPath(path);
         setOpeningMedia({ kind: optimisticKind, path, phase: "opening", loadId: loadId });
-        revealCurrentWindow();
+        revealCurrentWindowAfterRender(shouldFocusWindow);
       } else {
         setOpeningMedia(null);
       }
@@ -1983,15 +2335,19 @@ function App() {
         const viewKind: MediaKind = opensAsExtractedWord ? "text" : kind;
         if (kind === "unknown") {
           setOpeningMedia(null);
-          revealCurrentWindow();
+          revealCurrentWindow(shouldFocusWindow);
           showToast("This file type is not supported by LMP yet.", "error");
           return;
         }
 
         const staticKind = kind === "image" || kind === "document" || kind === "text";
         let playablePath = media.path;
-        const needsNativePrep =
-          settings.fallbackEngine !== "off" && !staticKind && shouldPrepareBeforeNativeLoad(media.path);
+        const playbackPlan = resolvePlaybackStartupPlan(
+          media.path,
+          kind,
+          settings.fallbackEngine,
+        );
+        const needsNativePrep = playbackPlan.prepareForNative;
         const startupResume =
           !staticKind && kind === "video" && settings.resumePlayback
             ? getResume(media.path)
@@ -2004,11 +2360,8 @@ function App() {
         setCurrentMedia(media);
         if (viewKind === "text") {
           setMediaInspection(null);
-        } else {
+        } else if (staticKind) {
           void inspectMedia(media.path, loadId);
-        }
-        if (kind === "audio") {
-          void loadAudioArtwork(media.path, loadId);
         }
         setCurrentPath(media.path);
         setDuration(0);
@@ -2093,12 +2446,12 @@ function App() {
                 suggestedSavePath: suggestedExtractedTextPath(media.path),
               });
             }
-            revealCurrentWindow();
+            revealCurrentWindow(shouldFocusWindow);
             return;
           }
           if (kind === "document") {
             setSourceUrl(convertFileSrc(media.path));
-            revealCurrentWindow();
+            revealCurrentWindow(shouldFocusWindow);
             return;
           }
           if (kind === "text") {
@@ -2135,11 +2488,11 @@ function App() {
             }
           }
           setSourceUrl(convertFileSrc(media.path));
-          revealCurrentWindow();
+          revealCurrentWindow(shouldFocusWindow);
           return;
         }
 
-        if (settings.fallbackEngine === "gstreamer") {
+        if (playbackPlan.mode === "gstreamer") {
           try {
             await startTrackedGstreamer(media.path);
             if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
@@ -2148,13 +2501,42 @@ function App() {
             startupResumeRef.current = null;
             setSourceUrl(null);
             setOpeningMedia(null);
-            revealCurrentWindow();
+            scheduleDeferredMediaDetails(media.path, kind, loadId);
+            revealCurrentWindow(shouldFocusWindow);
             return;
           } catch (error) {
             if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
               return;
             }
             showToast(`GStreamer could not start. Using native playback instead: ${compactError(error)}`, "info");
+          }
+        }
+
+        if (playbackPlan.useEmbeddedRenderer) {
+          try {
+            setOpeningMedia((current) =>
+              current?.loadId === loadId
+                ? { ...current, phase: startupResume ? "resuming" : "opening" }
+                : current,
+            );
+            await startTrackedLibMpvRender(
+              media.path,
+              loadId,
+              startupResume && startupResume.position > 5 ? startupResume.position : null,
+              shouldFocusWindow,
+            );
+            if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
+              return;
+            }
+            startupResumeRef.current = null;
+            scheduleDeferredMediaDetails(media.path, kind, loadId);
+            return;
+          } catch (error) {
+            if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
+              return;
+            }
+            setLibMpvSession(emptyLibMpvCoreSession);
+            showToast(`Embedded renderer could not start. Using native playback instead: ${compactError(error)}`, "info");
           }
         }
 
@@ -2198,7 +2580,7 @@ function App() {
               playablePath = media.path;
             } else {
               setOpeningMedia(null);
-              revealCurrentWindow();
+              revealCurrentWindow(shouldFocusWindow);
               showToast(
                 `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
                   fallbackError,
@@ -2220,13 +2602,14 @@ function App() {
           return;
         }
         setSourceUrl(convertFileSrc(playablePath));
-        scheduleWindowRevealFallback(media.path, loadId, kind === "audio" ? 900 : 1400);
+        scheduleDeferredMediaDetails(media.path, kind, loadId);
+        scheduleWindowRevealFallback(media.path, loadId, kind === "audio" ? 900 : 1400, shouldFocusWindow);
       } catch (error) {
         if (loadId !== loadIdRef.current) {
           return;
         }
         setOpeningMedia(null);
-        revealCurrentWindow();
+        revealCurrentWindow(shouldFocusWindow);
         showToast(compactError(error), "error");
       }
     },
@@ -2237,9 +2620,10 @@ function App() {
       commitPlaybackPosition,
       confirmTextNavigation,
       inspectMedia,
-      loadAudioArtwork,
       loadSubtitleFile,
       revealCurrentWindow,
+      revealCurrentWindowAfterRender,
+      scheduleDeferredMediaDetails,
       scheduleWindowRevealFallback,
       resumeController,
       resetImageView,
@@ -2248,7 +2632,9 @@ function App() {
       settings.resumePlayback,
       settings.textWordExtractionFormat,
       showToast,
+      startTrackedLibMpvRender,
       startTrackedGstreamer,
+      stopTrackedLibMpvRender,
       stopTrackedMpv,
       stopTrackedGstreamer,
     ],
@@ -2360,6 +2746,7 @@ function App() {
     recentOpenRequestRef.current = null;
     void stopTrackedGstreamer(true);
     void stopTrackedMpv(true);
+    void stopTrackedLibMpvRender(true);
     abortNativeMediaLoad();
     setOpeningMedia(null);
     setCurrentPath(null);
@@ -2416,6 +2803,7 @@ function App() {
     resetImageView,
     revealCurrentWindow,
     stopTrackedGstreamer,
+    stopTrackedLibMpvRender,
     stopTrackedMpv,
   ]);
 
@@ -2441,6 +2829,7 @@ function App() {
     recentOpenRequestRef.current = null;
     void stopTrackedGstreamer(true);
     void stopTrackedMpv(true);
+    void stopTrackedLibMpvRender(true);
     abortNativeMediaLoad();
     setOpeningMedia(null);
     setCurrentPath(null);
@@ -2497,6 +2886,7 @@ function App() {
     shelfMode,
     showToast,
     stopTrackedGstreamer,
+    stopTrackedLibMpvRender,
     stopTrackedMpv,
     updateInstallLocked,
   ]);
@@ -2642,12 +3032,12 @@ function App() {
   }, [appendToQueue, showToast, supportsQueue]);
 
   const playQueueIndex = useCallback(
-    async (index: number) => {
+    async (index: number, options: { focusWindow?: boolean } = {}) => {
       if (index < 0 || index >= queue.length) {
         return;
       }
 
-      await playPath(queue[index]);
+      await playPath(queue[index], { focusWindow: options.focusWindow });
     },
     [playPath, queue],
   );
@@ -2673,9 +3063,9 @@ function App() {
     [libraryFolder?.items, loadLibraryFolder, playQueue],
   );
 
-  const playNextQueueItem = useCallback(async () => {
+  const playNextQueueItem = useCallback(async (options: { focusWindow?: boolean } = {}) => {
     if (hasNextQueueItem) {
-      await playQueueIndex(queueIndex + 1);
+      await playQueueIndex(queueIndex + 1, options);
       return;
     }
 
@@ -2733,8 +3123,11 @@ function App() {
   );
 
   const activePlaybackEngine = useCallback((): PlaybackEngine | null => {
+    if (libMpvActiveForCurrent) {
+      return createLibMpvPlaybackEngine(libMpvSession, setLibMpvSession);
+    }
     return createNativePlaybackEngine(mediaRef.current);
-  }, []);
+  }, [libMpvActiveForCurrent, libMpvSession]);
 
   const tryRemuxFallback = useCallback(
     async (error?: unknown, media?: HTMLMediaElement) => {
@@ -2769,11 +3162,11 @@ function App() {
           commitPlaybackPosition(0, true);
         }
         setSourceUrl(convertFileSrc(remuxed.path));
-        scheduleWindowRevealFallback(path, loadIdRef.current, 1400);
+        scheduleWindowRevealFallback(path, loadIdRef.current, 1400, windowRevealFocusRef.current);
         showToast("Media remuxed without re-encoding.", "success");
       } catch (fallbackError) {
         remuxFallbackRef.current = { path, status: "done" };
-        revealCurrentWindow();
+        revealCurrentWindow(windowRevealFocusRef.current);
         showToast(
           `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
             fallbackError,
@@ -3119,6 +3512,46 @@ function App() {
     setControlActivity((value) => value + 1);
   }, [controlsVisible]);
 
+  const cancelVideoCursorHide = useCallback(() => {
+    if (videoCursorHideTimerRef.current !== null) {
+      window.clearTimeout(videoCursorHideTimerRef.current);
+      videoCursorHideTimerRef.current = null;
+    }
+  }, []);
+
+  const videoCursorAutoHideBlocked =
+    !isVideo || miniPlayerActive || controlsPinned || toolsOpen || Boolean(shelfMode) || contextMenu !== null;
+
+  const revealVideoCursor = useCallback(() => {
+    cancelVideoCursorHide();
+    setVideoCursorHidden(false);
+
+    if (videoCursorAutoHideBlocked) {
+      return;
+    }
+
+    videoCursorHideTimerRef.current = window.setTimeout(() => {
+      videoCursorHideTimerRef.current = null;
+      setVideoCursorHidden(true);
+    }, 1400);
+  }, [cancelVideoCursorHide, videoCursorAutoHideBlocked]);
+
+  const registerPlayerPointerActivity = useCallback(() => {
+    revealControls();
+    revealVideoCursor();
+  }, [revealControls, revealVideoCursor]);
+
+  useEffect(() => () => cancelVideoCursorHide(), [cancelVideoCursorHide]);
+
+  useEffect(() => {
+    if (!videoCursorAutoHideBlocked) {
+      return;
+    }
+
+    cancelVideoCursorHide();
+    setVideoCursorHidden(false);
+  }, [cancelVideoCursorHide, videoCursorAutoHideBlocked]);
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -3128,12 +3561,13 @@ function App() {
       event.preventDefault();
       event.stopPropagation();
       revealControls();
+      revealVideoCursor();
       setContextMenu({
         x: Math.max(8, event.clientX),
         y: Math.max(8, event.clientY),
       });
     },
-    [revealControls],
+    [revealControls, revealVideoCursor],
   );
 
   useEffect(() => {
@@ -3881,13 +4315,29 @@ function App() {
   }, [showToast, trimOutputPath]);
 
   useEffect(() => {
+    let disposed = false;
+
     invoke<string[]>("take_startup_files")
       .then((paths) => {
-        if (paths.length > 0) {
-          void playQueue(paths);
+        if (disposed) {
+          return;
         }
+        if (paths.length > 0) {
+          void playQueue(paths).finally(() => {
+            if (!disposed) {
+              setStartupFilesSettled(true);
+            }
+          });
+          return;
+        }
+        setStartupFilesSettled(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!disposed) {
+          setStartupFilesSettled(true);
+          revealCurrentWindow();
+        }
+      });
 
     const unlisten = listen<MediaOpenRequest>("media-open-request", (event) => {
       const { targetLabel, files } = event.payload;
@@ -3907,9 +4357,10 @@ function App() {
     });
 
     return () => {
+      disposed = true;
       void unlisten.then((dispose) => dispose());
     };
-  }, [handleIncomingOpenRequest, playQueue, windowLabel]);
+  }, [handleIncomingOpenRequest, playQueue, revealCurrentWindow, windowLabel]);
 
   useEffect(() => {
     let disposed = false;
@@ -3948,6 +4399,13 @@ function App() {
           }
         })
         .catch(() => undefined);
+      void readLibMpvCoreSession()
+        .then((session) => {
+          if (!disposed) {
+            setLibMpvSession(session);
+          }
+        })
+        .catch(() => undefined);
     }, startupDiagnosticsDelayMs);
 
     return () => {
@@ -3955,6 +4413,44 @@ function App() {
       window.clearTimeout(timer);
     };
   }, [showToast]);
+
+  useEffect(() => {
+    if (!libMpvActiveForCurrent) {
+      return;
+    }
+
+    let disposed = false;
+    let frame: number | null = null;
+    const update = () => {
+      if (disposed) {
+        return;
+      }
+      frame = null;
+      void syncNativeVideoSurfaceRect().catch(() => undefined);
+    };
+    const requestUpdate = () => {
+      if (frame !== null) {
+        return;
+      }
+      frame = window.requestAnimationFrame(update);
+    };
+
+    requestUpdate();
+    window.addEventListener("resize", requestUpdate);
+    const observer = new ResizeObserver(requestUpdate);
+    if (nativeVideoSurfaceRef.current) {
+      observer.observe(nativeVideoSurfaceRef.current);
+    }
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("resize", requestUpdate);
+      observer.disconnect();
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+    };
+  }, [libMpvActiveForCurrent, syncNativeVideoSurfaceRect]);
 
   useEffect(() => {
     const unlisten = listen<ClipExportProgress>("clip-export-progress", (event) => {
@@ -4051,6 +4547,13 @@ function App() {
   useEffect(() => () => revokeSubtitleUrl(), [revokeSubtitleUrl]);
 
   useEffect(() => {
+    return () => {
+      void stopLibMpvRenderSession().catch(() => undefined);
+      void stopLibMpvSurfaceSession().catch(() => undefined);
+    };
+  }, []);
+
+  useEffect(() => {
     if (
       !hasMedia ||
       !settings.autoHideControls ||
@@ -4098,6 +4601,7 @@ function App() {
     let playbackStarted = false;
     let startupPlayRequested = false;
     let startupResumeSettled = false;
+    let startupResumeSeeked = false;
     let startupResumeWaitUntil = 0;
     media.dataset.loadId = String(loadId);
     const player = createNativePlaybackEngine(media);
@@ -4162,15 +4666,27 @@ function App() {
       if (startupResume?.loadId === loadId && startupResume.path === loadPath) {
         const snapshot = player.snapshot();
         const targetReached = Math.abs(snapshot.position - startupResume.target) <= 0.65;
+        const seekAccepted = startupResumeSeeked || targetReached;
         if (
-          (!targetReached || snapshot.seeking || snapshot.readyState < 2) &&
+          (!seekAccepted || (!startupResumeSeeked && snapshot.seeking) || snapshot.readyState < 2) &&
           performance.now() < startupResumeWaitUntil
         ) {
-          resumePlayTimer = window.setTimeout(waitForStartupResume, 90);
+          if (resumePlayTimer !== null) {
+            window.clearTimeout(resumePlayTimer);
+          }
+          resumePlayTimer = window.setTimeout(() => {
+            resumePlayTimer = null;
+            waitForStartupResume();
+          }, 90);
           return;
         }
       }
       finishStartupResume();
+    };
+
+    const onStartupResumeSeeked = () => {
+      startupResumeSeeked = true;
+      waitForStartupResume();
     };
 
     const playWhenReady = () => {
@@ -4186,14 +4702,25 @@ function App() {
         );
         try {
           player.pause();
-          startupResumeWaitUntil = performance.now() + 2600;
-          pendingSeekRef.current = createPendingSeek(startupResume.target, player.snapshot().duration, 2200);
-          media.addEventListener("seeked", waitForStartupResume, { once: true });
+          startupResumeSeeked = false;
+          startupResumeWaitUntil = performance.now() + 2200;
+          pendingSeekRef.current = createPendingSeek(startupResume.target, player.snapshot().duration, 1900);
+          media.addEventListener("seeked", onStartupResumeSeeked, { once: true });
+          media.addEventListener("loadeddata", waitForStartupResume);
+          media.addEventListener("canplay", waitForStartupResume);
           player.seekTo(startupResume.target, false);
-          resumePlayTimer = window.setTimeout(waitForStartupResume, 120);
+          if (resumePlayTimer !== null) {
+            window.clearTimeout(resumePlayTimer);
+          }
+          resumePlayTimer = window.setTimeout(() => {
+            resumePlayTimer = null;
+            waitForStartupResume();
+          }, 120);
           return;
         } catch {
-          media.removeEventListener("seeked", waitForStartupResume);
+          media.removeEventListener("seeked", onStartupResumeSeeked);
+          media.removeEventListener("loadeddata", waitForStartupResume);
+          media.removeEventListener("canplay", waitForStartupResume);
         }
         clearStartupResume();
         setOpeningMedia((current) => (current?.loadId === loadId ? null : current));
@@ -4220,7 +4747,9 @@ function App() {
       disposed = true;
       media.removeEventListener("loadedmetadata", playWhenReady);
       media.removeEventListener("canplay", playWhenReady);
-      media.removeEventListener("seeked", waitForStartupResume);
+      media.removeEventListener("seeked", onStartupResumeSeeked);
+      media.removeEventListener("loadeddata", waitForStartupResume);
+      media.removeEventListener("canplay", waitForStartupResume);
       if (retryTimer !== null) {
         window.clearTimeout(retryTimer);
       }
@@ -4422,22 +4951,68 @@ function App() {
     trimPreviewEndRef.current = null;
     const player = createNativePlaybackEngine(media);
     const snapshot = player?.snapshot() ?? null;
+    tracePlaybackFocus("native-ended", {
+      autoplayNext: settings.autoplayNext,
+      duration: snapshot?.duration ?? "-",
+      hasNextQueueItem,
+      player: snapshot?.id ?? "-",
+      position: snapshot?.position ?? "-",
+      repeatCurrent: settings.repeatCurrent,
+    });
 
     if (player && snapshot && loopRange.start !== null && loopRange.end !== null) {
+      tracePlaybackFocus("native-loop-repeat", {
+        duration: snapshot.duration,
+        target: loopRange.start,
+      });
+      mediaReadyRevealSuppressRef.current = {
+        loadId: loadIdRef.current,
+        reason: "loop-range",
+        until: window.performance.now() + 1800,
+      };
+      tracePlaybackFocus("media-ready-reveal-suppress", {
+        loadId: loadIdRef.current,
+        reason: "loop-range",
+      });
       pendingSeekRef.current = createPendingSeek(loopRange.start, snapshot.duration, 450);
       player.seekTo(loopRange.start, true);
       commitPlaybackPosition(loopRange.start, true);
       setPaused(false);
-      void player.play().catch(() => setPaused(true));
+      void player
+        .play()
+        .then(() => tracePlaybackFocus("native-loop-play-ok", { target: loopRange.start }))
+        .catch((error) => {
+          tracePlaybackFocus("native-loop-play-fail", { error: compactError(error) });
+          setPaused(true);
+        });
       return;
     }
 
     if (player && snapshot && settings.repeatCurrent) {
+      tracePlaybackFocus("native-repeat-current", {
+        duration: snapshot.duration,
+        target: 0,
+      });
+      mediaReadyRevealSuppressRef.current = {
+        loadId: loadIdRef.current,
+        reason: "repeat-current",
+        until: window.performance.now() + 1800,
+      };
+      tracePlaybackFocus("media-ready-reveal-suppress", {
+        loadId: loadIdRef.current,
+        reason: "repeat-current",
+      });
       pendingSeekRef.current = createPendingSeek(0, snapshot.duration, 450);
       player.seekTo(0, true);
       commitPlaybackPosition(0, true);
       setPaused(false);
-      void player.play().catch(() => setPaused(true));
+      void player
+        .play()
+        .then(() => tracePlaybackFocus("native-repeat-play-ok", { target: 0 }))
+        .catch((error) => {
+          tracePlaybackFocus("native-repeat-play-fail", { error: compactError(error) });
+          setPaused(true);
+        });
       return;
     }
 
@@ -4447,7 +5022,8 @@ function App() {
     }
     setPaused(true);
     if (settings.autoplayNext && hasNextQueueItem) {
-      void playNextQueueItem();
+      tracePlaybackFocus("native-autoplay-next", { focusWindow: false });
+      void playNextQueueItem({ focusWindow: false });
     }
   }, [
     commitPlaybackPosition,
@@ -4458,6 +5034,214 @@ function App() {
     savePlaybackProgress,
     settings.autoplayNext,
     settings.repeatCurrent,
+    tracePlaybackFocus,
+  ]);
+
+  useEffect(() => {
+    if (!libMpvActiveForCurrent) {
+      return;
+    }
+
+    let disposed = false;
+    let timer: number | null = null;
+
+    const tick = () => {
+      void readLibMpvCoreSession()
+        .then((session) => {
+          if (disposed) {
+            return;
+          }
+          setLibMpvSession(session);
+          if (session.path !== currentPath) {
+            return;
+          }
+          if (session.ended) {
+            tracePlaybackFocus("libmpv-ended", {
+              duration: session.duration,
+              position: session.position,
+              repeatCurrent: settings.repeatCurrent,
+              title: currentPath ? fileName(currentPath) : "-",
+            });
+            if (settings.repeatCurrent && currentPath) {
+              const repeatPath = currentPath;
+              const repeatLoadId = loadIdRef.current;
+              const isRepeatStillCurrent = () =>
+                !disposed &&
+                loadIdRef.current === repeatLoadId &&
+                activePlaybackPathRef.current === repeatPath;
+
+              pendingSeekRef.current = createPendingSeek(0, session.duration, 450);
+              commitPlaybackPosition(0, true);
+              tracePlaybackFocus("libmpv-repeat-seek-start", {
+                loadId: repeatLoadId,
+                title: fileName(repeatPath),
+              });
+              void seekLibMpvCore(0)
+                .then((nextSession) => {
+                  if (!isRepeatStillCurrent()) {
+                    tracePlaybackFocus("libmpv-repeat-seek-skip", {
+                      reason: "stale-after-seek",
+                      loadId: repeatLoadId,
+                      title: fileName(repeatPath),
+                    });
+                    return nextSession;
+                  }
+                  tracePlaybackFocus("libmpv-repeat-seek-ok", {
+                    loadId: repeatLoadId,
+                    position: nextSession.position,
+                    title: fileName(repeatPath),
+                  });
+                  setLibMpvSession(nextSession);
+                  return setLibMpvCorePaused(false);
+                })
+                .then((nextSession) => {
+                  if (!isRepeatStillCurrent()) {
+                    tracePlaybackFocus("libmpv-repeat-unpause-skip", {
+                      reason: "stale-after-unpause",
+                      loadId: repeatLoadId,
+                      title: fileName(repeatPath),
+                    });
+                    return;
+                  }
+                  tracePlaybackFocus("libmpv-repeat-unpause-ok", {
+                    loadId: repeatLoadId,
+                    paused: nextSession.paused,
+                    position: nextSession.position,
+                    title: fileName(repeatPath),
+                  });
+                  setLibMpvSession(nextSession);
+                  setPaused(nextSession.paused);
+                })
+                .catch((error) => {
+                  if (!isRepeatStillCurrent()) {
+                    return;
+                  }
+                  tracePlaybackFocus("libmpv-repeat-seek-fallback", {
+                    error: compactError(error),
+                    loadId: repeatLoadId,
+                    title: fileName(repeatPath),
+                  });
+                  void startTrackedLibMpvRender(repeatPath, repeatLoadId, 0, false).catch((error) => {
+                    if (!disposed) {
+                      tracePlaybackFocus("libmpv-repeat-fallback-fail", {
+                        error: compactError(error),
+                        loadId: repeatLoadId,
+                        title: fileName(repeatPath),
+                      });
+                      showToast(compactError(error), "error");
+                    }
+                  });
+                });
+              return;
+            }
+            onEnded();
+            return;
+          }
+          if (!session.active) {
+            return;
+          }
+
+          setPaused(session.paused);
+          setDuration(session.duration || 0);
+          if (session.width > 0 && session.height > 0) {
+            setMediaDetails((current) => {
+              const nextWidth = Math.round(session.width);
+              const nextHeight = Math.round(session.height);
+              const nextDuration = session.duration > 0 ? session.duration : null;
+              if (
+                current.width === nextWidth &&
+                current.height === nextHeight &&
+                current.duration === nextDuration
+              ) {
+                return current;
+              }
+              return {
+                width: nextWidth,
+                height: nextHeight,
+                duration: nextDuration,
+              };
+            });
+            scheduleVideoWindowAspectResize(session.width, session.height);
+          } else if (session.duration > 0) {
+            setMediaDetails((current) =>
+              current.duration === session.duration
+                ? current
+                : { ...current, duration: session.duration },
+            );
+          }
+
+          if (session.position > 0.1 || session.ready) {
+            setOpeningMedia((current) =>
+              current?.path === session.path ? null : current,
+            );
+          }
+          if (
+            loopRange.start !== null &&
+            loopRange.end !== null &&
+            session.position >= loopRange.end - 0.03
+          ) {
+            tracePlaybackFocus("libmpv-loop-repeat", {
+              duration: session.duration,
+              target: loopRange.start,
+            });
+            pendingSeekRef.current = createPendingSeek(loopRange.start, session.duration, 450);
+            commitPlaybackPosition(loopRange.start, true);
+            void seekLibMpvCore(loopRange.start)
+              .then((nextSession) => {
+                if (!disposed) {
+                  tracePlaybackFocus("libmpv-loop-seek-ok", {
+                    position: nextSession.position,
+                    target: loopRange.start,
+                  });
+                  setLibMpvSession(nextSession);
+                }
+              })
+              .catch((error) => {
+                if (!disposed) {
+                  tracePlaybackFocus("libmpv-loop-seek-fail", { error: compactError(error) });
+                  showToast(compactError(error), "error");
+                }
+              });
+            return;
+          }
+          commitPlaybackPosition(session.position);
+          maybeSavePlaybackProgress();
+        })
+        .catch((error) => {
+          if (!disposed) {
+            showToast(compactError(error), "error");
+          }
+        })
+        .finally(() => {
+          if (!disposed) {
+            timer = window.setTimeout(tick, 180);
+          }
+        });
+    };
+
+    tick();
+
+    return () => {
+      disposed = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [
+    commitPlaybackPosition,
+    currentPath,
+    libMpvActiveForCurrent,
+    loopRange.end,
+    loopRange.start,
+    maybeSavePlaybackProgress,
+    onEnded,
+    scheduleVideoWindowAspectResize,
+    seekLibMpvCore,
+    setLibMpvCorePaused,
+    settings.repeatCurrent,
+    showToast,
+    startTrackedLibMpvRender,
+    tracePlaybackFocus,
   ]);
 
   useEffect(() => {
@@ -5080,11 +5864,12 @@ function App() {
         ref={playerRef}
         className={playerViewClass}
         aria-label="Player"
-        onMouseMove={revealControls}
-        onPointerDown={revealControls}
+        onMouseMove={registerPlayerPointerActivity}
+        onPointerDown={registerPlayerPointerActivity}
         onFocusCapture={revealControls}
         onWheel={(event) => {
           revealControls();
+          revealVideoCursor();
           if ((event.target as HTMLElement).closest("[data-wheel-volume='ignore']")) {
             return;
           }
@@ -5099,11 +5884,11 @@ function App() {
         }}
       >
         <div
-          className={`stage ${hasMedia ? "has-media" : "has-home"} ${isImage ? "has-image" : ""} ${
+          className={`stage ${hasMedia ? "has-media" : showHome ? "has-home" : "is-starting"} ${isImage ? "has-image" : ""} ${
             isDocument ? "has-document" : ""
           } ${isText ? "has-text" : ""}`}
         >
-          {!hasMedia ? (
+          {showHome ? (
             <HomeScreen
               onNewText={() => void createNewTextDraft()}
               onOpen={(target) => void openHomeFiles(target)}
@@ -5261,11 +6046,24 @@ function App() {
             </>
           ) : null}
 
+          {isVideo ? (
+            <div
+              ref={nativeVideoSurfaceRef}
+              className={`native-video-surface-anchor ${
+                libMpvActiveForCurrent ? "is-active" : ""
+              }`}
+              aria-hidden="true"
+            />
+          ) : null}
+
           {!isStaticViewer ? (
             <video
               ref={mediaRef}
-              className={`media-surface ${isAudio ? "audio-only" : ""}`}
+              className={`media-surface ${isAudio ? "audio-only" : ""} ${
+                libMpvActiveForCurrent ? "is-standby" : ""
+              }`}
               style={videoSurfaceStyle}
+              preload="auto"
               playsInline
               onDurationChange={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
@@ -5352,7 +6150,7 @@ function App() {
               onError={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
                   setOpeningMedia(null);
-                  revealCurrentWindow();
+                  revealCurrentWindow(windowRevealFocusRef.current);
                   void handlePlaybackProblem(undefined, event.currentTarget);
                 }
               }}
@@ -5374,7 +6172,6 @@ function App() {
             <div className="video-overlay-header" data-wheel-volume="ignore">
               <div className="video-overlay-title">
                 <strong>{currentTitle}</strong>
-                <span>{metaLabel}</span>
               </div>
             </div>
           ) : null}

@@ -1,6 +1,6 @@
 # LMP Alpha Smoke Checklist
 
-Quick regression checks for LMP alpha builds and larger changes. Current public alpha: `v0.1.3-alpha`.
+Quick regression checks for LMP alpha builds and larger changes. Current public alpha: `v0.2.1-alpha`.
 
 ## Build Gate
 
@@ -16,7 +16,7 @@ Video:
 
 - Opens MP4 from Open With/startup argument.
 - Opens MKV/TS recognized files without replacing unrelated open windows.
-- Play/pause, seek, speed, volume, fullscreen, mini-player, queue next/previous work.
+- Play/pause, seek, speed, volume, fullscreen, mini-player, compact controls, queue next/previous work.
 - Create Clip/Trim can export a short MP4 from MP4, MKV, and TS inputs without overwriting the original.
 - Trim export rejects invalid ranges and keeps audio roughly in sync.
 - Unsupported native playback shows a useful fallback/error path instead of getting stuck.
@@ -60,6 +60,7 @@ Shared:
 - Custom titlebar can move, minimize, maximize and close every viewer.
 - More/tools panels close cleanly and do not break auto-hide.
 - Recent, queue, library and info shelves do not overlap controls in small windows.
+- Mini-player stays on top only while active and returns to normal window behavior after exit.
 - Multiple Open With launches can create separate windows for unrelated files.
 
 ## Current Alpha Risks
@@ -71,7 +72,7 @@ Blockers:
 High priority:
 
 - Repeat the clean install/Open With test on a second Windows profile or VM before publishing a public alpha.
-- GStreamer fallback is detected and callable, but not yet a seamless embedded playback backend.
+- Helper-engine fallback work is detected where available, but is not yet a seamless embedded playback backend.
 - PDF printing needs a few real-world documents/printers checked after each print-flow change.
 - Native/WebView codec support still varies by machine; release notes must state this clearly.
 - Integrated terminal execution uses saved files, not unsaved editor drafts.

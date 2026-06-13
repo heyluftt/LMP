@@ -275,49 +275,6 @@ input[type="range"]:focus-visible {
   cursor: none;
 }
 
-.player-view.mini-player {
-  border-radius: 8px;
-}
-
-.player-view.mini-player .stage {
-  border-radius: 8px;
-}
-
-.player-view.mini-player.video-mode .media-surface {
-  object-fit: contain;
-}
-
-.player-view.mini-player.audio-mode .stage {
-  background:
-    radial-gradient(circle at 50% 30%, rgba(164, 234, 208, 0.08), transparent 42%),
-    #040506;
-}
-
-.player-view.mini-player.audio-mode .now-playing.audio-panel {
-  width: min(320px, calc(100% - 24px));
-}
-
-.player-view.mini-player.audio-mode .now-playing.audio-panel .media-orb {
-  width: 48px;
-  height: 48px;
-  margin-bottom: 10px;
-}
-
-.player-view.mini-player.audio-mode .audio-bars,
-.player-view.mini-player.audio-mode .now-playing.audio-panel span {
-  display: none;
-}
-
-.player-view.mini-player.audio-mode .now-playing p {
-  margin-bottom: 5px;
-  font-size: 10px;
-}
-
-.player-view.mini-player.audio-mode .now-playing.audio-panel h1 {
-  font-size: clamp(24px, 8vw, 34px);
-  line-height: 1;
-}
-
 .app-shell.without-media .player-view {
   margin-top: 0;
 }
@@ -350,6 +307,14 @@ input[type="range"]:focus-visible {
 
 .stage.has-media {
   background: #030405;
+}
+
+.stage.is-starting {
+  background: #030405;
+}
+
+.stage.is-starting::before {
+  opacity: 0;
 }
 
 .stage.has-image {
@@ -405,7 +370,13 @@ input[type="range"]:focus-visible {
   box-shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
   pointer-events: none;
   backdrop-filter: blur(18px);
-  animation: opening-state-enter 180ms ease both;
+  will-change: opacity, transform;
+  animation: opening-state-enter 160ms ease 220ms both;
+}
+
+.media-opening-state[data-phase="preparing"],
+.media-opening-state[data-phase="resuming"] {
+  animation-delay: 110ms;
 }
 
 .media-opening-state[data-phase="preparing"] {
@@ -491,6 +462,22 @@ input[type="range"]:focus-visible {
 .media-surface,
 .image-surface {
   object-fit: contain;
+}
+
+.media-surface.is-standby {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.native-video-surface-anchor {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.native-video-surface-anchor.is-active {
+  background: #020304;
 }
 
 .document-viewport {
@@ -1267,25 +1254,6 @@ input[type="range"]:focus-visible {
   transform: translateX(-50%) translateY(18px);
 }
 
-.player-view.minimal-controls .transport-dock {
-  gap: 8px;
-}
-
-.player-view.minimal-controls .control-row {
-  grid-template-columns: auto auto;
-  justify-content: center;
-}
-
-.player-view.minimal-controls .control-meta,
-.player-view.minimal-controls .compact-hide {
-  display: none;
-}
-
-.player-view.minimal-controls .control-cluster.secondary {
-  min-width: auto;
-  justify-content: center;
-}
-
 .transport-dock.viewer-dock {
   gap: 0;
 }
@@ -1482,6 +1450,11 @@ input[type="range"]:focus-visible {
   justify-self: start;
   max-width: 360px;
   padding-left: 2px;
+}
+
+.control-meta.title-only {
+  gap: 0;
+  align-self: center;
 }
 
 .control-meta strong,
@@ -3605,10 +3578,6 @@ button.track-card:hover,
 
   .transport-dock.audio-dock .control-row {
     grid-template-columns: 1fr;
-  }
-
-  .player-view.minimal-controls .control-row {
-    grid-template-columns: auto auto;
   }
 
   .control-meta {

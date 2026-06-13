@@ -39,6 +39,7 @@ import { useEffect, useRef, useState } from "react";
 import { formatClock } from "../lib/playerBrain";
 import type { MediaCapabilities, ShelfCapability } from "../player/capabilities";
 import type { PlayerSettings } from "../player/settings";
+import { MinimalTransportDock } from "./MinimalTransportDock";
 import { PdfToolbar, type DocumentViewState } from "../viewers/pdf";
 import type { ImageViewState } from "../viewers/image";
 
@@ -184,6 +185,13 @@ export function TransportDock({
     onToggleSubtitles();
   };
   const isAudioMode = mediaMode === "audio";
+  const isVideoMode = mediaMode === "video";
+  const showDockMeta = !isVideoMode;
+  const useMinimalDock =
+    settings.minimalControls &&
+    !isStaticViewer &&
+    capabilities.timedPlayback &&
+    (isAudioMode || isVideoMode);
   const showQueueControls = capabilities.queue && queueCount > 1;
   const scrubActiveRef = useRef(false);
   const [draftPosition, setDraftPosition] = useState<number | null>(null);
@@ -227,6 +235,54 @@ export function TransportDock({
     commitTimelineSeek();
     event.currentTarget.blur();
   };
+
+  if (useMinimalDock) {
+    return (
+      <MinimalTransportDock
+        capabilities={capabilities}
+        cycleSpeed={cycleSpeed}
+        duration={duration}
+        gstreamerActiveForCurrent={gstreamerActiveForCurrent}
+        hasNextQueueItem={hasNextQueueItem}
+        hasPreviousQueueItem={hasPreviousQueueItem}
+        isFullscreen={isFullscreen}
+        loopArmed={loopArmed}
+        loopLabel={loopLabel}
+        loopReady={loopReady}
+        mediaMode={isVideoMode ? "video" : "audio"}
+        nudgeVolumeFromWheel={nudgeVolumeFromWheel}
+        onAddCurrentMoment={onAddCurrentMoment}
+        onClearLoop={onClearLoop}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onOpenSubtitle={onOpenSubtitle}
+        onPlayNextQueueItem={onPlayNextQueueItem}
+        onPlayPreviousQueueItem={onPlayPreviousQueueItem}
+        onSeekBy={onSeekBy}
+        onSeekTo={onSeekTo}
+        onSetLoopPoint={onSetLoopPoint}
+        onSetPlayerVolume={onSetPlayerVolume}
+        onTimelineKeyDown={onTimelineKeyDown}
+        onToggleFullscreen={onToggleFullscreen}
+        onTogglePause={onTogglePause}
+        onToggleShelfMode={onToggleShelfMode}
+        onToggleSubtitles={onToggleSubtitles}
+        onToggleTools={onToggleTools}
+        paused={paused}
+        position={position}
+        queueCount={queueCount}
+        queueIndex={queueIndex}
+        settings={settings}
+        shelfMode={shelfMode}
+        speed={speed}
+        subtitleAvailable={subtitleAvailable}
+        subtitlesEnabled={subtitlesEnabled}
+        toolsOpen={toolsOpen}
+        trimRange={trimRange}
+        volume={volume}
+      />
+    );
+  }
 
   return (
     <div
@@ -279,9 +335,9 @@ export function TransportDock({
       ) : null}
 
       <div className="control-row">
-        <div className="control-meta">
+        <div className={`control-meta ${showDockMeta ? "" : "title-only"}`}>
           <strong>{currentTitle}</strong>
-          <span>{metaLabel}</span>
+          {showDockMeta ? <span>{metaLabel}</span> : null}
         </div>
 
         <div className="control-cluster">

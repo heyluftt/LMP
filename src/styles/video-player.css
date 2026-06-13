@@ -10,6 +10,17 @@
   background: #020304;
 }
 
+.player-view.video-mode.cursor-hidden,
+.player-view.video-mode.cursor-hidden .stage,
+.player-view.video-mode.cursor-hidden .media-surface {
+  cursor: none;
+}
+
+.player-view.video-mode.cursor-hidden .transport-dock,
+.player-view.video-mode.cursor-hidden .window-controls {
+  cursor: auto;
+}
+
 .app-shell.with-media:has(.player-view.video-mode) {
   position: relative;
   grid-template-rows: minmax(0, 1fr) auto;
@@ -103,9 +114,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 50px 14px 34px;
+  padding: 46px 14px 30px;
   color: rgba(255, 248, 238, 0.92);
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.62), rgba(0, 0, 0, 0));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0));
   pointer-events: none;
   transition:
     opacity 180ms ease,
@@ -145,67 +156,111 @@
 
 .player-view.video-mode .transport-dock {
   right: auto;
-  bottom: 14px;
+  bottom: 10px;
   left: 50%;
-  gap: 8px;
-  width: min(1240px, calc(100% - 28px));
-  padding: 9px 10px 10px;
-  border-color: rgba(255, 255, 255, 0.085);
+  gap: 5px;
+  width: min(1320px, calc(100% - 24px));
+  padding: 7px 12px 8px;
+  border-color: rgba(255, 255, 255, 0.045);
   background:
-    linear-gradient(135deg, rgba(164, 234, 208, 0.025), rgba(237, 197, 120, 0.018)),
-    rgba(5, 7, 9, 0.64);
-  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.38);
-  backdrop-filter: blur(18px);
+    linear-gradient(180deg, rgba(6, 8, 9, 0.22), rgba(6, 8, 9, 0.4)),
+    linear-gradient(90deg, rgba(164, 234, 208, 0.025), rgba(237, 197, 120, 0.02));
+  box-shadow: 0 -10px 42px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(16px);
   transform: translateX(-50%);
 }
 
 .player-view.video-mode.controls-hidden .transport-dock {
-  transform: translateX(-50%) translateY(14px);
+  transform: translateX(-50%) translateY(12px);
+}
+
+.player-view.video-mode .scrub-row {
+  grid-template-columns: 42px minmax(0, 1fr) 42px;
+  gap: 9px;
+  color: rgba(247, 242, 235, 0.56);
+  font-size: 11px;
+}
+
+.player-view.video-mode .timeline-wrap {
+  --timeline-thumb-size: 14px;
+  --timeline-track-height: 4px;
+  height: 18px;
 }
 
 .player-view.video-mode .timeline-track-frame {
-  border-color: rgba(255, 255, 255, 0.16);
-  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.105);
+  background: rgba(255, 255, 255, 0.13);
 }
 
 .player-view.video-mode .timeline-progress-fill {
-  background: linear-gradient(90deg, #9fe5cd, #d8e5ad);
+  background: linear-gradient(90deg, rgba(159, 229, 205, 0.92), rgba(216, 229, 173, 0.78));
+}
+
+.player-view.video-mode .timeline-input {
+  height: 18px;
+}
+
+.player-view.video-mode .timeline-input::-webkit-slider-runnable-track {
+  height: 4px;
 }
 
 .player-view.video-mode .timeline-input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
   background: #a4ead0;
   box-shadow:
-    0 0 0 3px rgba(164, 234, 208, 0.12),
-    0 4px 14px rgba(0, 0, 0, 0.34);
+    0 0 0 3px rgba(164, 234, 208, 0.095),
+    0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.player-view.video-mode .control-row {
+  grid-template-columns: minmax(120px, 1fr) auto minmax(170px, 1fr);
+  gap: 9px;
 }
 
 .player-view.video-mode .icon-button,
 .player-view.video-mode .text-button,
 .player-view.video-mode .volume-inline {
-  border-color: rgba(255, 255, 255, 0.07);
-  background: rgba(255, 255, 255, 0.052);
+  border-color: rgba(255, 255, 255, 0.055);
+  background: rgba(255, 255, 255, 0.038);
 }
 
 .player-view.video-mode .icon-button:hover,
 .player-view.video-mode .text-button:hover,
 .player-view.video-mode .volume-inline:hover {
-  border-color: rgba(164, 234, 208, 0.2);
-  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(164, 234, 208, 0.18);
+  background: rgba(255, 255, 255, 0.085);
 }
 
 .player-view.video-mode .play-button {
-  width: 50px;
-  height: 50px;
-  border-color: rgba(237, 197, 120, 0.32);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+  width: 46px;
+  height: 46px;
+  border-color: rgba(237, 197, 120, 0.28);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
 }
 
 .player-view.video-mode .control-meta {
-  max-width: min(340px, 100%);
+  max-width: min(300px, 100%);
+  opacity: 0.84;
+}
+
+.player-view.video-mode .control-meta strong {
+  font-size: 11px;
 }
 
 .player-view.video-mode .control-cluster {
-  gap: 7px;
+  gap: 6px;
+}
+
+.player-view.video-mode .volume-inline {
+  grid-template-columns: 17px minmax(54px, 88px);
+  height: 36px;
+  padding: 0 9px;
+}
+
+.player-view.video-mode .text-button {
+  height: 36px;
 }
 
 @media (max-width: 620px) {

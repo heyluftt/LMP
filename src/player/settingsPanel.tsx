@@ -5,6 +5,7 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 
 import { formatBytes } from "../lib/mediaFormat";
 import type { MediaKind } from "../lib/playerBrain";
+import { playbackBackendDisplay } from "./playbackEnginePolicy";
 import type { PlayerSettings } from "./settings";
 import type { CacheStatus, PlaybackBackendStatus, SettingsCacheStatus } from "./types";
 
@@ -714,15 +715,15 @@ export function SettingsPanel({
           <div className="settings-engine-view">
             <div className="backend-panel" aria-label="Playback backend">
               <div className="backend-panel-title">
-                <strong>Fallback engine</strong>
+                <strong>Playback path</strong>
                 <span>{fallbackStatusLabel}</span>
               </div>
               <div className="backend-choice">
-                <div className="backend-choice-group" aria-label="Fallback engine mode">
+                <div className="backend-choice-group" aria-label="Playback path mode">
                   {[
                     ["auto", "Auto"],
                     ["gstreamer", "GStreamer"],
-                    ["off", "Off"],
+                    ["off", "Native only"],
                   ].map(([value, label]) => (
                     <button
                       key={value}
@@ -737,7 +738,7 @@ export function SettingsPanel({
                     </button>
                   ))}
                 </div>
-                <div className="backend-action-group" aria-label="Fallback engine test actions">
+                <div className="backend-action-group" aria-label="Playback test actions">
                   <button
                     className="backend-test-button"
                     onClick={onOpenCurrentWithGstreamer}
@@ -751,13 +752,20 @@ export function SettingsPanel({
             </div>
 
             <div className="backend-card-grid">
-              {playbackBackends.map((backend) => (
-                <div key={backend.id} className={`backend-card ${backend.available ? "ready" : ""}`}>
-                  <strong>{backend.name}</strong>
-                  <span>{backend.role}</span>
-                  <small>{backend.available ? backend.version ?? "ready" : "missing"}</small>
-                </div>
-              ))}
+              {playbackBackends.map((backend) => {
+                const display = playbackBackendDisplay(backend);
+                return (
+                  <div
+                    key={backend.id}
+                    className={`backend-card ${backend.available ? "ready" : ""}`}
+                    title={display.title}
+                  >
+                    <strong>{backend.name}</strong>
+                    <span>{display.role}</span>
+                    <small>{display.status}</small>
+                  </div>
+                );
+              })}
             </div>
 
             <CacheSettingsBlock
