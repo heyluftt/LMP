@@ -38,7 +38,7 @@ mod platform {
         System::LibraryLoader::GetModuleHandleW,
         UI::WindowsAndMessaging::{
             CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetWindowPos,
-            ShowWindow, CS_HREDRAW, CS_VREDRAW, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOZORDER,
+            ShowWindow, CS_HREDRAW, CS_OWNDC, CS_VREDRAW, HWND_TOP, SWP_HIDEWINDOW, SWP_NOACTIVATE,
             SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
             WS_CLIPSIBLINGS, WS_VISIBLE,
         },
@@ -206,7 +206,7 @@ mod platform {
                 }
 
                 let class = WNDCLASSW {
-                    style: CS_HREDRAW | CS_VREDRAW,
+                    style: CS_HREDRAW | CS_VREDRAW | CS_OWNDC,
                     lpfnWndProc: Some(surface_window_proc),
                     cbClsExtra: 0,
                     cbWndExtra: 0,
@@ -290,8 +290,7 @@ mod platform {
         rect: NativeVideoSurfaceRect,
         visible: bool,
     ) -> Result<(), String> {
-        let flags = SWP_NOZORDER
-            | SWP_NOACTIVATE
+        let flags = SWP_NOACTIVATE
             | if visible {
                 SWP_SHOWWINDOW
             } else {
@@ -300,7 +299,7 @@ mod platform {
         let ok = unsafe {
             SetWindowPos(
                 hwnd,
-                ptr::null_mut(),
+                HWND_TOP,
                 rect.left,
                 rect.top,
                 rect.width,

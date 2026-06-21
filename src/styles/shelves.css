@@ -118,6 +118,249 @@
   height: auto;
 }
 
+.queue-shelf {
+  min-width: 0;
+}
+
+.queue-shelf .queue-section {
+  height: 100%;
+  min-height: 0;
+  padding: 10px;
+  border-radius: 9px;
+  background:
+    linear-gradient(180deg, rgba(164, 234, 208, 0.04), transparent 30%),
+    rgba(8, 10, 12, 0.82);
+}
+
+.queue-shelf .shelf-header {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 7px;
+}
+
+.queue-shelf .shelf-header strong {
+  font-size: 13px;
+}
+
+.queue-shelf .queue-count {
+  justify-self: start;
+}
+
+.queue-shelf .shelf-actions {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+}
+
+.queue-shelf .shelf-actions button {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.queue-shelf .shelf-actions .shelf-close {
+  flex: 0 0 30px;
+  padding: 0;
+}
+
+.queue-shelf .queue-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 7px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 1px 2px 5px 0;
+}
+
+.queue-shelf .queue-list button {
+  flex: initial;
+  width: auto;
+  min-height: 0;
+}
+
+.queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(164, 234, 208, 0.025), rgba(237, 197, 120, 0.018)),
+    rgba(255, 255, 255, 0.045);
+}
+
+.queue-item:hover {
+  border-color: rgba(164, 234, 208, 0.18);
+  background: linear-gradient(135deg, rgba(164, 234, 208, 0.13), rgba(237, 197, 120, 0.08));
+}
+
+.queue-item.active {
+  border-color: rgba(164, 234, 208, 0.38);
+  background: linear-gradient(135deg, #a4ead0, #edc578);
+}
+
+.queue-shelf .queue-item {
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 7px;
+  min-height: 82px;
+  padding: 7px;
+}
+
+.queue-play-button {
+  display: grid;
+  grid-template-columns: 34px 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 4px;
+  border: 0;
+  color: #e9e6dc;
+  background: transparent;
+  text-align: left;
+}
+
+.queue-shelf .queue-play-button {
+  width: 100%;
+  height: 66px;
+  min-height: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.queue-shelf .queue-play-button:hover {
+  transform: none;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.queue-shelf .queue-play-button .media-thumb {
+  grid-row: auto;
+  width: 44px;
+  height: 44px;
+}
+
+.queue-play-button:hover {
+  transform: none;
+  background: transparent;
+}
+
+.queue-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queue-item-text strong,
+.queue-item-text small {
+  grid-column: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-text strong {
+  color: rgba(255, 248, 238, 0.91);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.queue-item-text small {
+  color: rgba(247, 242, 235, 0.48);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.queue-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.queue-item-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  width: 26px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  border-radius: 8px;
+  color: rgba(247, 242, 235, 0.7);
+  background: rgba(0, 0, 0, 0.2);
+  line-height: 0;
+  text-align: center;
+  transform: none;
+}
+
+.queue-item-actions button svg {
+  display: block;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.queue-item-actions button:hover:not(:disabled) {
+  color: #09100f;
+  background: rgba(164, 234, 208, 0.88);
+}
+
+.queue-item-actions button:disabled {
+  opacity: 0.34;
+}
+
+.queue-shelf .queue-item-actions {
+  align-self: stretch;
+  justify-content: center;
+  min-width: 0;
+}
+
+.queue-shelf .queue-item-actions button {
+  border-radius: 7px;
+}
+
+.queue-item.active .queue-index {
+  color: #09100f;
+  background: rgba(9, 16, 15, 0.13);
+}
+
+.queue-item.active .queue-item-text strong,
+.queue-item.active .queue-item-text small,
+.queue-item.active .queue-play-button {
+  color: #09100f;
+}
+
+.queue-item.active .media-thumb {
+  border-color: rgba(9, 16, 15, 0.14);
+  color: #09100f;
+  background: rgba(9, 16, 15, 0.1);
+}
+
+@media (min-width: 861px) {
+  .queue-shelf .queue-item-actions {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .queue-shelf .queue-item-actions button {
+    width: 28px;
+    height: 22px;
+  }
+}
+
 .trim-section {
   grid-template-rows: auto minmax(0, auto);
   max-height: min(360px, calc(100vh - 188px));

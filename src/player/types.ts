@@ -211,7 +211,7 @@ export type PlayerCommand =
   | { type: "seekTo"; seconds: number }
   | { type: "setVolume"; volume: number }
   | { type: "setSpeed"; speed: number }
-  | { type: "frameStep"; direction: -1 | 1 };
+  | { type: "frameStep"; direction: -1 | 1; seconds?: number };
 
 export type Moment = {
   id: string;

@@ -30,11 +30,21 @@ export function keyboardCommand(
     };
   }
 
-  if (event.key === "," || event.key === "<") {
+  if (
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    (event.key === "," || event.key === "<")
+  ) {
     return { type: "frameStep", direction: -1 };
   }
 
-  if (event.key === "." || event.key === ">") {
+  if (
+    !event.ctrlKey &&
+    !event.altKey &&
+    !event.metaKey &&
+    (event.key === "." || event.key === ">")
+  ) {
     return { type: "frameStep", direction: 1 };
   }
 

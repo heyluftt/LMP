@@ -1059,6 +1059,9 @@ fn log_instance_event(phase: &str, role: &str, detail: &str, files: &[String]) {
 }
 
 fn log_playback_event(phase: &str, detail: &str) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|value| value.as_secs())
@@ -1105,7 +1108,11 @@ fn log_frontend_playback_event(
 ) -> Result<(), String> {
     log_playback_event(
         &format!("focus-debug-{}", compact_log_value(&phase)),
-        &format!("{} {}", window_runtime_state(&window), compact_log_value(&detail)),
+        &format!(
+            "{} {}",
+            window_runtime_state(&window),
+            compact_log_value(&detail)
+        ),
     );
     Ok(())
 }
@@ -1423,6 +1430,29 @@ fn open_files_in_new_window(
     watch_window_state(&window);
     watch_focus_debug(&window);
     watch_window_registry_cleanup(&window, state);
+
+    let startup_window = window.clone();
+    let startup_label = label.clone();
+    let startup_files = files.clone();
+    let startup_state = state.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(180));
+        let should_emit = startup_state
+            .window_files
+            .lock()
+            .map(|pending| pending.contains_key(&startup_label))
+            .unwrap_or(false);
+        if !should_emit {
+            return;
+        }
+        let _ = startup_window.emit(
+            "media-open-request",
+            MediaOpenRequest {
+                target_label: startup_label,
+                files: startup_files,
+            },
+        );
+    });
 
     let reveal_window = window.clone();
     thread::spawn(move || {
@@ -2184,9 +2214,7 @@ fn start_libmpv_core_session(
 ) -> Result<LibMpvCoreSession, String> {
     log_playback_event(
         "libmpv-core-request",
-        &format!(
-            "path=\"{path}\" start={start_seconds:?} volume={volume:?} speed={speed:?}"
-        ),
+        &format!("path=\"{path}\" start={start_seconds:?} volume={volume:?} speed={speed:?}"),
     );
     let media = validated_external_playback_media(&path, "Embedded MPV")?;
     let runtime = find_runtime_file(libmpv_runtime::runtime_names())

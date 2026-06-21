@@ -6,7 +6,7 @@ const remuxBeforeNativeExtensions = new Set(["ts", "mts", "m2ts", "mkv"]);
 const remuxFallbackExtensions = new Set(["ts", "mts", "m2ts", "mp4", "m4v", "mov", "mkv"]);
 
 export type PlaybackStartupPlan = {
-  mode: "native" | "gstreamer";
+  mode: "native" | "embedded-mpv" | "gstreamer";
   prepareForNative: boolean;
   useEmbeddedRenderer: boolean;
   embeddedRendererReason: string | null;
@@ -27,19 +27,23 @@ export function resolvePlaybackStartupPlan(
 ): PlaybackStartupPlan {
   const staticKind = kind === "image" || kind === "document" || kind === "text";
   const videoOrAudio = kind === "video" || kind === "audio";
-  const nativePath = fallbackEngine !== "gstreamer" || staticKind || !videoOrAudio;
+  const embeddedPath = fallbackEngine === "embedded-mpv" && kind === "video";
+  const gstreamerPath = fallbackEngine === "gstreamer" && videoOrAudio && !staticKind;
+  const nativePath = !embeddedPath && !gstreamerPath;
 
   return {
-    mode: nativePath ? "native" : "gstreamer",
+    mode: embeddedPath ? "embedded-mpv" : gstreamerPath ? "gstreamer" : "native",
     prepareForNative:
       nativePath &&
       fallbackEngine !== "off" &&
       videoOrAudio &&
       remuxBeforeNativeExtensions.has(mediaExtension(path)),
-    useEmbeddedRenderer: false,
+    useEmbeddedRenderer: embeddedPath,
     embeddedRendererReason:
       kind === "video"
-        ? "The embedded MPV renderer is kept out of automatic playback until the WebView overlay path is reliable."
+        ? embeddedPath
+          ? "Embedded MPV render path selected."
+          : "Embedded MPV render path is opt-in while the native WebView path stays primary."
         : null,
   };
 }
@@ -55,6 +59,10 @@ export function playbackPathLabel(
     const gstreamer = playbackBackends.find((backend) => backend.id === "gstreamer");
     return gstreamer?.available ? "GStreamer selected" : "GStreamer missing";
   }
+  if (fallbackEngine === "embedded-mpv") {
+    const libmpv = playbackBackends.find((backend) => backend.id === "libmpv");
+    return libmpv?.available ? "Embedded MPV selected" : "Embedded MPV missing";
+  }
   return "Auto: native/remux first";
 }
 
@@ -69,7 +77,7 @@ export function playbackBackendHint(
     nativeBackend?.name ?? "Native WebView",
     fallbackEngine !== "off" ? playbackPathLabel(fallbackEngine, playbackBackends) : null,
     ffmpegBackend?.available ? "FFmpeg remux ready" : null,
-    libmpvBackend?.available ? "MPV runtime detected" : null,
+    libmpvBackend?.available ? "Embedded MPV ready" : null,
   ]
     .filter(Boolean)
     .join(" - ");

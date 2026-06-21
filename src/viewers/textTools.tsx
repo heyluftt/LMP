@@ -7,6 +7,7 @@ import {
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  PenLine,
   Redo2,
   RefreshCcw,
   Save,
@@ -29,6 +30,7 @@ type TextToolsProps = {
   findQuery: string;
   isFullscreen: boolean;
   onFind: (direction: -1 | 1) => void;
+  onApplyWritingPreset: () => void;
   onFindQueryChange: (value: string) => void;
   onGoToLine: () => void;
   onOpenInfo: () => void;
@@ -54,6 +56,7 @@ type TextToolsProps = {
   replaceQuery: string;
   toolsOpen: boolean;
   wholeWord: boolean;
+  writingPresetActive: boolean;
   wordWrap: boolean;
 };
 
@@ -67,6 +70,7 @@ export function TextTools({
   findQuery,
   isFullscreen,
   onFind,
+  onApplyWritingPreset,
   onFindQueryChange,
   onGoToLine,
   onOpenInfo,
@@ -92,6 +96,7 @@ export function TextTools({
   replaceQuery,
   toolsOpen,
   wholeWord,
+  writingPresetActive,
   wordWrap,
 }: TextToolsProps) {
   return (
@@ -181,66 +186,86 @@ export function TextTools({
             </button>
           </div>
 
-          <button
-            className={`tool-action playback-tool ${dirty ? "active" : ""}`}
-            onClick={onSave}
-            disabled={!dirty}
-            title="Save text"
-          >
-            <Save size={17} />
-            <span>Save</span>
-          </button>
-          <button className="tool-action playback-tool" onClick={onSaveAs} title="Save text as">
-            <SaveAll size={17} />
-            <span>Save As</span>
-          </button>
-          <button className="tool-action playback-tool" onClick={onRevert} disabled={!dirty} title="Revert unsaved text">
-            <RefreshCcw size={17} />
-            <span>Revert</span>
-          </button>
-          <button className="tool-action playback-tool" onClick={onUndo} title="Undo text edit">
-            <Undo2 size={17} />
-            <span>Undo</span>
-          </button>
-          <button className="tool-action playback-tool" onClick={onRedo} title="Redo text edit">
-            <Redo2 size={17} />
-            <span>Redo</span>
-          </button>
-          <button
-            className={`tool-action playback-tool ${wordWrap ? "active" : ""}`}
-            onClick={onToggleWordWrap}
-            title="Toggle word wrap"
-          >
-            <FileText size={17} />
-            <span>Wrap</span>
-          </button>
-          <button
-            className="tool-action playback-tool"
-            onClick={onToggleFullscreen}
-            title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
-          >
-            {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
-            <span>Fullscreen</span>
-          </button>
-          <button className={`tool-action panel-tool ${activeShelf === "recent" ? "active" : ""}`} onClick={onOpenRecent}>
-            <History size={17} />
-            <span>Recent</span>
-          </button>
-          <button className={`tool-action panel-tool ${activeShelf === "library" ? "active" : ""}`} onClick={onOpenLibrary}>
-            <FolderOpen size={17} />
-            <span>Library</span>
-          </button>
-          <button className={`tool-action system-tool ${activeShelf === "info" ? "active" : ""}`} onClick={onOpenInfo}>
-            <Info size={17} />
-            <span>Info</span>
-          </button>
-          <button
-            className={`tool-action system-tool ${activeShelf === "settings" ? "active" : ""}`}
-            onClick={onOpenSettings}
-          >
-            <Settings2 size={17} />
-            <span>Settings</span>
-          </button>
+          <div className="text-tool-section primary">
+            <span className="text-tool-section-label">File</span>
+            <button
+              className={`tool-action playback-tool ${dirty ? "active" : ""}`}
+              onClick={onSave}
+              disabled={!dirty}
+              title="Save text"
+            >
+              <Save size={17} />
+              <span>Save</span>
+            </button>
+            <button className="tool-action playback-tool" onClick={onSaveAs} title="Save text as">
+              <SaveAll size={17} />
+              <span>Save As</span>
+            </button>
+            <button className="tool-action playback-tool" onClick={onRevert} disabled={!dirty} title="Revert unsaved text">
+              <RefreshCcw size={17} />
+              <span>Revert</span>
+            </button>
+          </div>
+
+          <div className="text-tool-section">
+            <span className="text-tool-section-label">Write</span>
+            <button className="tool-action playback-tool" onClick={onUndo} title="Undo text edit">
+              <Undo2 size={17} />
+              <span>Undo</span>
+            </button>
+            <button className="tool-action playback-tool" onClick={onRedo} title="Redo text edit">
+              <Redo2 size={17} />
+              <span>Redo</span>
+            </button>
+            <button
+              className={`tool-action playback-tool ${wordWrap ? "active" : ""}`}
+              onClick={onToggleWordWrap}
+              title="Toggle word wrap"
+            >
+              <FileText size={17} />
+              <span>Wrap</span>
+            </button>
+            <button
+              className={`tool-action playback-tool ${writingPresetActive ? "active" : ""}`}
+              onClick={onApplyWritingPreset}
+              title={writingPresetActive ? "Exit writing mode" : "Enter writing mode"}
+              aria-pressed={writingPresetActive}
+            >
+              <PenLine size={17} />
+              <span>Writing</span>
+            </button>
+          </div>
+
+          <div className="text-tool-section secondary">
+            <span className="text-tool-section-label">View</span>
+            <button
+              className="tool-action playback-tool"
+              onClick={onToggleFullscreen}
+              title={isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+            >
+              {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+              <span>Fullscreen</span>
+            </button>
+            <button className={`tool-action panel-tool ${activeShelf === "recent" ? "active" : ""}`} onClick={onOpenRecent}>
+              <History size={17} />
+              <span>Recent</span>
+            </button>
+            <button className={`tool-action panel-tool ${activeShelf === "library" ? "active" : ""}`} onClick={onOpenLibrary}>
+              <FolderOpen size={17} />
+              <span>Library</span>
+            </button>
+            <button className={`tool-action system-tool ${activeShelf === "info" ? "active" : ""}`} onClick={onOpenInfo}>
+              <Info size={17} />
+              <span>Info</span>
+            </button>
+            <button
+              className={`tool-action system-tool ${activeShelf === "settings" ? "active" : ""}`}
+              onClick={onOpenSettings}
+            >
+              <Settings2 size={17} />
+              <span>Settings</span>
+            </button>
+          </div>
         </div>
       ) : null}
 

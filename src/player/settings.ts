@@ -1,5 +1,5 @@
 export type PlayerSettings = {
-  fallbackEngine: "auto" | "gstreamer" | "off";
+  fallbackEngine: "auto" | "embedded-mpv" | "gstreamer" | "off";
   seekSeconds: number;
   shiftSeekMultiplier: number;
   wheelVolumeStep: number;
@@ -23,6 +23,7 @@ export type PlayerSettings = {
   textAutoCloseBrackets: boolean;
   textSyntaxHighlighting: boolean;
   enableIntegratedTerminal: boolean;
+  textWritingMode: boolean;
   textWordWrap: boolean;
   speedPresets: number[];
 };
@@ -55,6 +56,7 @@ export const defaultSettings: PlayerSettings = {
   textAutoCloseBrackets: false,
   textSyntaxHighlighting: true,
   enableIntegratedTerminal: false,
+  textWritingMode: false,
   textWordWrap: true,
   speedPresets: [0.5, 0.75, 1, 1.25, 1.5, 2],
 };
@@ -83,7 +85,10 @@ function sanitizeBoolean(value: unknown, fallback: boolean) {
 }
 
 function sanitizeFallbackEngine(value: unknown): PlayerSettings["fallbackEngine"] {
-  return value === "auto" || value === "gstreamer" || value === "off"
+  if (value === "libmpv" || value === "mpv-embedded") {
+    return "embedded-mpv";
+  }
+  return value === "auto" || value === "embedded-mpv" || value === "gstreamer" || value === "off"
     ? value
     : defaultSettings.fallbackEngine;
 }
@@ -158,6 +163,7 @@ export function sanitizeSettings(value: Partial<PlayerSettings>): PlayerSettings
       value.enableIntegratedTerminal,
       defaultSettings.enableIntegratedTerminal,
     ),
+    textWritingMode: sanitizeBoolean(value.textWritingMode, defaultSettings.textWritingMode),
     textWordWrap: sanitizeBoolean(value.textWordWrap, defaultSettings.textWordWrap),
     speedPresets: sanitizeSpeedPresets(value.speedPresets),
   };

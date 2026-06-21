@@ -65,7 +65,7 @@ export class LibMpvPlaybackEngine implements PlaybackEngine {
         break;
       case "frameStep":
         await this.setPaused(true);
-        await this.seekToAsync(this.session.position + frameSeconds * command.direction);
+        await this.seekToAsync(this.session.position + (command.seconds ?? frameSeconds) * command.direction);
         break;
     }
   }

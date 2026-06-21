@@ -10,6 +10,22 @@
   background: #020304;
 }
 
+.player-view.video-mode .native-video-surface-anchor {
+  top: 42px;
+  right: 0;
+  bottom: 118px;
+  left: 0;
+}
+
+.player-view.video-mode .native-video-surface-anchor.is-active {
+  background: #020304;
+}
+
+.player-view.video-mode.fullscreen-mode .native-video-surface-anchor {
+  top: 0;
+  bottom: 132px;
+}
+
 .player-view.video-mode.cursor-hidden,
 .player-view.video-mode.cursor-hidden .stage,
 .player-view.video-mode.cursor-hidden .media-surface {
@@ -68,9 +84,30 @@
     transform 180ms ease;
 }
 
-.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-title-mark {
+.app-shell.with-media:has(.player-view.video-mode) .window-home-button,
+.app-shell.with-media:has(.player-view.video-mode) .window-controls {
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-home-button,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-title-mark,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-controls {
   opacity: 0;
   transform: translateY(-4px);
+  pointer-events: none;
+}
+
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden:focus-within) .window-home-button,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden:focus-within) .window-title-mark,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden:focus-within) .window-controls,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-titlebar:focus-within .window-home-button,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-titlebar:focus-within .window-title-mark,
+.app-shell.with-media:has(.player-view.video-mode.controls-hidden) .window-titlebar:focus-within .window-controls {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 
 .app-shell.with-media:has(.player-view.video-mode) .window-controls {
@@ -102,6 +139,34 @@
   grid-row: 2;
   margin: 8px;
   margin-top: 0;
+}
+
+.player-view.video-mode .video-queue-overlay {
+  position: absolute;
+  top: 64px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 8;
+  width: clamp(320px, 31vw, 410px);
+  min-height: 0;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  pointer-events: auto;
+  background: transparent;
+}
+
+@media (max-width: 860px) {
+  .player-view.video-mode .video-queue-overlay {
+    top: 58px;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    width: auto;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+  }
 }
 
 .video-overlay-header {

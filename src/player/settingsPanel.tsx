@@ -1,4 +1,4 @@
-import { Download, Minus, Plus, RefreshCw, Settings2, X } from "lucide-react";
+import { Download, RefreshCw, Settings2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
@@ -6,16 +6,26 @@ import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updat
 import { formatBytes } from "../lib/mediaFormat";
 import type { MediaKind } from "../lib/playerBrain";
 import { playbackBackendDisplay } from "./playbackEnginePolicy";
+import { CacheTab } from "./settings/CacheTab";
+import { CodeTab } from "./settings/CodeTab";
+import { QueueTab } from "./settings/QueueTab";
+import { SettingStepper } from "./settings/SettingStepper";
+import { ShortcutsTab } from "./settings/ShortcutsTab";
+import { TextTab } from "./settings/TextTab";
+import { WritingTab } from "./settings/WritingTab";
 import type { PlayerSettings } from "./settings";
-import type { CacheStatus, PlaybackBackendStatus, SettingsCacheStatus } from "./types";
+import type { PlaybackBackendStatus, SettingsCacheStatus } from "./types";
 
 export type SettingsTab =
   | "controls"
   | "playback"
+  | "queue"
   | "engine"
+  | "cache"
   | "audio"
   | "viewer"
   | "text"
+  | "writing"
   | "textCode"
   | "updates"
   | "shortcuts";
@@ -28,26 +38,34 @@ type SettingsTabDefinition = {
 export const playerSettingsTabs: SettingsTabDefinition[] = [
   { id: "controls", label: "Controls" },
   { id: "playback", label: "Playback" },
+  { id: "queue", label: "Queue" },
   { id: "engine", label: "Engine" },
+  { id: "cache", label: "Cache" },
   { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const viewerSettingsTabs: SettingsTabDefinition[] = [
   { id: "viewer", label: "Viewer" },
+  { id: "queue", label: "Queue" },
+  { id: "cache", label: "Cache" },
   { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const audioSettingsTabs: SettingsTabDefinition[] = [
   { id: "audio", label: "Audio" },
+  { id: "queue", label: "Queue" },
+  { id: "cache", label: "Cache" },
   { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
 
 export const textSettingsTabs: SettingsTabDefinition[] = [
   { id: "text", label: "Text" },
+  { id: "writing", label: "Writing" },
   { id: "textCode", label: "Code" },
+  { id: "cache", label: "Cache" },
   { id: "updates", label: "Updates" },
   { id: "shortcuts", label: "Keys" },
 ];
@@ -68,22 +86,12 @@ export function settingsTabsFor(kind: MediaKind) {
   return viewerSettingsTabs;
 }
 
-type SettingStepperProps = {
-  label: string;
-  description: string;
-  unit: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (value: number) => void;
-};
-
 type SettingsPanelProps = {
   activeTab: SettingsTab;
   currentPath: string | null;
   fallbackStatusLabel: string;
   gstreamerAvailable: boolean;
+  libMpvAvailable: boolean;
   isAudio: boolean;
   isDocument: boolean;
   isImage: boolean;
@@ -107,93 +115,6 @@ type SettingsPanelProps = {
   tabs: SettingsTabDefinition[];
   updateInstallLocked: boolean;
 };
-
-function stepNumber(value: number, step: number, direction: -1 | 1) {
-  return Math.round((value + step * direction) * 100) / 100;
-}
-
-function SettingStepper({
-  label,
-  description,
-  unit,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: SettingStepperProps) {
-  const commit = (next: number) => {
-    onChange(Math.max(min, Math.min(max, next)));
-  };
-
-  return (
-    <div className="settings-field">
-      <div className="settings-label">
-        <strong>{label}</strong>
-        <span>{description}</span>
-      </div>
-      <div className="number-stepper">
-        <button type="button" onClick={() => commit(stepNumber(value, step, -1))} aria-label={`Decrease ${label}`}>
-          <Minus size={14} />
-        </button>
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => commit(Number(event.currentTarget.value))}
-          aria-label={label}
-        />
-        <button type="button" onClick={() => commit(stepNumber(value, step, 1))} aria-label={`Increase ${label}`}>
-          <Plus size={14} />
-        </button>
-        <small>{unit}</small>
-      </div>
-    </div>
-  );
-}
-
-function cacheSizeLabel(status: CacheStatus | null | undefined) {
-  if (!status) {
-    return "Checking size...";
-  }
-  return `${formatBytes(status.byteLen)} - ${status.fileCount} ${status.fileCount === 1 ? "file" : "files"}`;
-}
-
-function CacheSettingsBlock({
-  cacheStatus,
-  onClearMediaProbeCache,
-  onClearPreparedVideoCache,
-  onClearPreviewCache,
-}: {
-  cacheStatus: SettingsCacheStatus | null;
-  onClearMediaProbeCache: () => void;
-  onClearPreparedVideoCache: () => void;
-  onClearPreviewCache: () => void;
-}) {
-  return (
-    <div className="settings-cache-list">
-      <div className="viewer-note settings-cache-note">
-        <strong>Preview cache</strong>
-        <span>Thumbnails and audio artwork - {cacheSizeLabel(cacheStatus?.preview)}</span>
-        <button type="button" onClick={onClearPreviewCache}>Clear preview cache</button>
-      </div>
-
-      <div className="viewer-note settings-cache-note">
-        <strong>Prepared video cache</strong>
-        <span>Native playback remux files - {cacheSizeLabel(cacheStatus?.preparedVideo)}</span>
-        <button type="button" onClick={onClearPreparedVideoCache}>Clear prepared video cache</button>
-      </div>
-
-      <div className="viewer-note settings-cache-note">
-        <strong>Media probe cache</strong>
-        <span>FFprobe inspection results - {cacheSizeLabel(cacheStatus?.mediaProbe)}</span>
-        <button type="button" onClick={onClearMediaProbeCache}>Clear media probe cache</button>
-      </div>
-    </div>
-  );
-}
 
 type UpdateStatus = "idle" | "checking" | "available" | "upToDate" | "installing" | "restarting" | "error";
 
@@ -379,6 +300,7 @@ export function SettingsPanel({
   currentPath,
   fallbackStatusLabel,
   gstreamerAvailable,
+  libMpvAvailable,
   isAudio,
   isDocument,
   isImage,
@@ -481,7 +403,7 @@ export function SettingsPanel({
 
             <SettingStepper
               label="Hide delay"
-              description="Control fade delay"
+              description="Hover controls"
               unit="s"
               value={settings.controlsHideDelaySeconds}
               min={0.2}
@@ -524,45 +446,6 @@ export function SettingsPanel({
               <label className="switch-field">
                 <input
                   type="checkbox"
-                  checked={settings.repeatCurrent}
-                  onChange={(event) =>
-                    onPatchSettings(
-                      event.currentTarget.checked
-                        ? { repeatCurrent: true, autoplayNext: false }
-                        : { repeatCurrent: false },
-                    )
-                  }
-                />
-                <span>Repeat current</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.autoplayNext}
-                  onChange={(event) =>
-                    onPatchSettings(
-                      event.currentTarget.checked
-                        ? { autoplayNext: true, repeatCurrent: false }
-                        : { autoplayNext: false },
-                    )
-                  }
-                />
-                <span>Autoplay next</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.rememberRecentMedia}
-                  onChange={(event) => onPatchSettings({ rememberRecentMedia: event.currentTarget.checked })}
-                />
-                <span>Remember recents</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
                   checked={settings.resumePlayback}
                   onChange={(event) => onPatchSettings({ resumePlayback: event.currentTarget.checked })}
                 />
@@ -590,15 +473,6 @@ export function SettingsPanel({
               <label className="switch-field">
                 <input
                   type="checkbox"
-                  checked={settings.autoQueueFolder}
-                  onChange={(event) => onPatchSettings({ autoQueueFolder: event.currentTarget.checked })}
-                />
-                <span>Folder queue</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
                   checked={settings.centerVideoWindowAfterResize}
                   onChange={(event) =>
                     onPatchSettings({ centerVideoWindowAfterResize: event.currentTarget.checked })
@@ -609,6 +483,8 @@ export function SettingsPanel({
             </div>
           </div>
         ) : null}
+
+        {activeTab === "queue" ? <QueueTab onPatchSettings={onPatchSettings} settings={settings} /> : null}
 
         {activeTab === "audio" ? (
           <div className="settings-grid compact-settings-grid">
@@ -642,45 +518,6 @@ export function SettingsPanel({
               <label className="switch-field">
                 <input
                   type="checkbox"
-                  checked={settings.repeatCurrent}
-                  onChange={(event) =>
-                    onPatchSettings(
-                      event.currentTarget.checked
-                        ? { repeatCurrent: true, autoplayNext: false }
-                        : { repeatCurrent: false },
-                    )
-                  }
-                />
-                <span>Repeat current</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.autoplayNext}
-                  onChange={(event) =>
-                    onPatchSettings(
-                      event.currentTarget.checked
-                        ? { autoplayNext: true, repeatCurrent: false }
-                        : { autoplayNext: false },
-                    )
-                  }
-                />
-                <span>Autoplay next</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.rememberRecentMedia}
-                  onChange={(event) => onPatchSettings({ rememberRecentMedia: event.currentTarget.checked })}
-                />
-                <span>Remember recents</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
                   checked={settings.autoHideControls}
                   onChange={(event) => onPatchSettings({ autoHideControls: event.currentTarget.checked })}
                 />
@@ -701,14 +538,16 @@ export function SettingsPanel({
               <strong>Audio viewer</strong>
               <span>New audio files replace the current song unless multiple audio windows are enabled.</span>
             </div>
-
-            <CacheSettingsBlock
-              cacheStatus={cacheStatus}
-              onClearMediaProbeCache={onClearMediaProbeCache}
-              onClearPreparedVideoCache={onClearPreparedVideoCache}
-              onClearPreviewCache={onClearPreviewCache}
-            />
           </div>
+        ) : null}
+
+        {activeTab === "cache" ? (
+          <CacheTab
+            cacheStatus={cacheStatus}
+            onClearMediaProbeCache={onClearMediaProbeCache}
+            onClearPreparedVideoCache={onClearPreparedVideoCache}
+            onClearPreviewCache={onClearPreviewCache}
+          />
         ) : null}
 
         {activeTab === "engine" ? (
@@ -718,16 +557,30 @@ export function SettingsPanel({
                 <strong>Playback path</strong>
                 <span>{fallbackStatusLabel}</span>
               </div>
+              <div className="backend-summary-card">
+                <strong>Default</strong>
+                <span>Native WebView stays primary. Other engines are fallback paths.</span>
+              </div>
               <div className="backend-choice">
                 <div className="backend-choice-group" aria-label="Playback path mode">
                   {[
-                    ["auto", "Auto"],
-                    ["gstreamer", "GStreamer"],
-                    ["off", "Native only"],
-                  ].map(([value, label]) => (
+                    { value: "auto", label: "Auto" },
+                    {
+                      value: "embedded-mpv",
+                      label: "Embedded MPV",
+                      disabled: !libMpvAvailable,
+                      title: libMpvAvailable
+                        ? "Use the embedded MPV render path for videos."
+                        : "Embedded MPV runtime is not available.",
+                    },
+                    { value: "gstreamer", label: "GStreamer" },
+                    { value: "off", label: "Native only" },
+                  ].map(({ value, label, disabled, title }) => (
                     <button
                       key={value}
                       className={`backend-mode-button ${settings.fallbackEngine === value ? "active" : ""}`}
+                      disabled={disabled && settings.fallbackEngine !== value}
+                      title={title}
                       onClick={() =>
                         onPatchSettings({
                           fallbackEngine: value as PlayerSettings["fallbackEngine"],
@@ -745,7 +598,7 @@ export function SettingsPanel({
                     disabled={!currentPath || isStaticViewer || !gstreamerAvailable}
                     title="Open current media through the external GStreamer fallback"
                   >
-                    Test GStreamer
+                    Test current file with GStreamer
                   </button>
                 </div>
               </div>
@@ -767,28 +620,12 @@ export function SettingsPanel({
                 );
               })}
             </div>
-
-            <CacheSettingsBlock
-              cacheStatus={cacheStatus}
-              onClearMediaProbeCache={onClearMediaProbeCache}
-              onClearPreparedVideoCache={onClearPreparedVideoCache}
-              onClearPreviewCache={onClearPreviewCache}
-            />
           </div>
         ) : null}
 
         {activeTab === "viewer" ? (
           <div className="settings-grid compact-settings-grid">
             <div className="settings-switches viewer-switches">
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.rememberRecentMedia}
-                  onChange={(event) => onPatchSettings({ rememberRecentMedia: event.currentTarget.checked })}
-                />
-                <span>Remember recents</span>
-              </label>
-
               <label className="switch-field">
                 <input
                   type="checkbox"
@@ -806,15 +643,6 @@ export function SettingsPanel({
                 />
                 <span>Minimal bar</span>
               </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.autoQueueFolder}
-                  onChange={(event) => onPatchSettings({ autoQueueFolder: event.currentTarget.checked })}
-                />
-                <span>Folder queue</span>
-              </label>
             </div>
 
             <div className="viewer-note">
@@ -827,229 +655,34 @@ export function SettingsPanel({
                   : "Video playback settings are hidden for images."}
               </span>
             </div>
-
-            <CacheSettingsBlock
-              cacheStatus={cacheStatus}
-              onClearMediaProbeCache={onClearMediaProbeCache}
-              onClearPreparedVideoCache={onClearPreparedVideoCache}
-              onClearPreviewCache={onClearPreviewCache}
-            />
           </div>
         ) : null}
 
         {activeTab === "text" ? (
-          <div className="settings-grid compact-settings-grid">
-            <SettingStepper
-              label="Font size"
-              description="Editor text"
-              unit="px"
-              value={settings.textFontSize}
-              min={10}
-              max={24}
-              step={1}
-              onChange={(value) => onPatchSettings({ textFontSize: value })}
-            />
+          <TextTab
+            onPatchSettings={onPatchSettings}
+            settings={settings}
+          />
+        ) : null}
 
-            <SettingStepper
-              label="Tab size"
-              description="Indent width"
-              unit="sp"
-              value={settings.textTabSize}
-              min={1}
-              max={8}
-              step={1}
-              onChange={(value) => onPatchSettings({ textTabSize: value })}
-            />
-
-            <div className="speed-presets font-presets" aria-label="Text editor font">
-              <span>Font</span>
-              <div>
-                {[
-                  ["mono", "Mono"],
-                  ["system", "System"],
-                  ["sans", "Sans"],
-                  ["serif", "Serif"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={settings.textFontFamily === value ? "active" : ""}
-                    onClick={() =>
-                      onPatchSettings({
-                        textFontFamily: value as PlayerSettings["textFontFamily"],
-                      })
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="speed-presets font-presets" aria-label="Word document extraction format">
-              <span>DOCX</span>
-              <div>
-                {[
-                  ["structured", "Structured"],
-                  ["plain", "Plain"],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={settings.textWordExtractionFormat === value ? "active" : ""}
-                    onClick={() =>
-                      onPatchSettings({
-                        textWordExtractionFormat:
-                          value as PlayerSettings["textWordExtractionFormat"],
-                      })
-                    }
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="settings-switches viewer-switches">
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.textLineNumbers}
-                  onChange={(event) => onPatchSettings({ textLineNumbers: event.currentTarget.checked })}
-                />
-                <span>Line numbers</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.textWordWrap}
-                  onChange={(event) => onPatchSettings({ textWordWrap: event.currentTarget.checked })}
-                />
-                <span>Word wrap</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.rememberRecentMedia}
-                  onChange={(event) => onPatchSettings({ rememberRecentMedia: event.currentTarget.checked })}
-                />
-                <span>Remember recents</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.autoHideControls}
-                  onChange={(event) => onPatchSettings({ autoHideControls: event.currentTarget.checked })}
-                />
-                <span>Auto hide controls</span>
-              </label>
-            </div>
-
-            <div className="viewer-note">
-              <strong>Text module</strong>
-              <span>Plain files and editable Word extractions stay in the same editor flow.</span>
-            </div>
-          </div>
+        {activeTab === "writing" ? (
+          <WritingTab
+            onPatchSettings={onPatchSettings}
+            settings={settings}
+          />
         ) : null}
 
         {activeTab === "textCode" ? (
-          <div className="settings-grid compact-settings-grid">
-            <div className="settings-switches viewer-switches">
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.textSyntaxHighlighting}
-                  onChange={(event) =>
-                    onPatchSettings({ textSyntaxHighlighting: event.currentTarget.checked })
-                  }
-                />
-                <span>Syntax colors</span>
-              </label>
-
-              <label className="switch-field">
-                <input
-                  type="checkbox"
-                  checked={settings.textAutoCloseBrackets}
-                  onChange={(event) =>
-                    onPatchSettings({ textAutoCloseBrackets: event.currentTarget.checked })
-                  }
-                />
-                <span>Auto pairs</span>
-              </label>
-
-              <label className="switch-field stacked">
-                <input
-                  type="checkbox"
-                  checked={settings.enableIntegratedTerminal}
-                  onChange={(event) =>
-                    onPatchSettings({ enableIntegratedTerminal: event.currentTarget.checked })
-                  }
-                />
-                <span>
-                  <strong>Integrated terminal</strong>
-                  <small>Show an optional terminal panel for running local scripts.</small>
-                </span>
-              </label>
-            </div>
-
-            <div className="viewer-note">
-              <strong>Programming helpers</strong>
-              <span>Optional code-focused behavior such as colors, pairs, and local script tools.</span>
-            </div>
-          </div>
+          <CodeTab onPatchSettings={onPatchSettings} settings={settings} />
         ) : null}
 
         {activeTab === "shortcuts" ? (
-          <div className="shortcut-strip expanded" aria-label="Keyboard shortcuts">
-            <span>F Fullscreen</span>
-            {isText ? (
-              <>
-                <span>Ctrl+S Save</span>
-                <span>Ctrl+Shift+S Save As</span>
-                <span>Ctrl+O Open</span>
-                <span>Ctrl+F Find</span>
-                <span>Ctrl+H Replace</span>
-                <span>Ctrl+G Go to line</span>
-                <span>Ctrl+Z Undo</span>
-                <span>Ctrl+Y Redo</span>
-              </>
-            ) : isImage ? (
-              <>
-                <span>Left/Right Previous/Next</span>
-                <span>R Rotate</span>
-                <span>+/- Zoom</span>
-                <span>0 Reset image</span>
-              </>
-            ) : isDocument ? (
-              <>
-                <span>Left/Right Page</span>
-                <span>PageUp/PageDown Page</span>
-                <span>Wheel Zoom</span>
-                <span>Drag Pan</span>
-                <span>Ctrl+P Print</span>
-                <span>+/- Zoom</span>
-                <span>0 Reset PDF</span>
-                <span>Ctrl+O Open</span>
-              </>
-            ) : isAudio ? (
-              <>
-                <span>Space Play/Pause</span>
-                <span>Left/Right Seek</span>
-                <span>Shift+Arrow Long seek</span>
-                <span>Wheel Volume</span>
-              </>
-            ) : (
-              <>
-                <span>Space Play/Pause</span>
-                <span>Left/Right Seek</span>
-                <span>Shift+Arrow Long seek</span>
-                <span>L Loop point</span>
-                <span>Shift+L Clear loop</span>
-                <span>C Captions</span>
-              </>
-            )}
-          </div>
+          <ShortcutsTab
+            isAudio={isAudio}
+            isDocument={isDocument}
+            isImage={isImage}
+            isText={isText}
+          />
         ) : null}
 
         {activeTab === "updates" ? <AppUpdatePanel onInstallLockChange={onUpdateInstallLockChange} /> : null}

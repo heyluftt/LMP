@@ -64,7 +64,7 @@ export class NativeMediaEngine implements PlaybackEngine {
         break;
       case "frameStep":
         this.media.pause();
-        this.seekTo(this.media.currentTime + frameSeconds * command.direction);
+        this.seekTo(this.media.currentTime + (command.seconds ?? frameSeconds) * command.direction);
         break;
     }
   }

@@ -107,22 +107,6 @@ export function startLibMpvCoreSession(
   });
 }
 
-export function startLibMpvSurfaceSession(
-  path: string,
-  rect: NativeVideoSurfaceRect,
-  startSeconds?: number | null,
-  volume?: number | null,
-  speed?: number | null,
-) {
-  return invoke<LibMpvCoreSession>("start_libmpv_surface_session", {
-    path,
-    rect,
-    startSeconds: startSeconds ?? null,
-    volume: volume ?? null,
-    speed: speed ?? null,
-  });
-}
-
 export function startLibMpvRenderSession(
   path: string,
   rect: NativeVideoSurfaceRect,

@@ -1,6 +1,6 @@
 # LMP Alpha Smoke Checklist
 
-Quick regression checks for LMP alpha builds and larger changes. Current public alpha: `v0.2.1-alpha`.
+Quick regression checks for LMP alpha builds and larger changes. Current public alpha: `v0.2.2-alpha`.
 
 ## Build Gate
 
@@ -41,6 +41,7 @@ PDF/Document:
 - Page next/previous, page overview, zoom, fit, reset and print dialog work.
 - Print preview does not include LMP controls/chrome.
 - DOCX opens directly as an editable extracted text copy.
+- Legacy DOC shows extracted text through an available converter or a clear converter-needed message.
 - Saving an extracted DOCX copy creates or asks for a separate text file and does not modify the original Word document.
 
 Text:
@@ -49,6 +50,7 @@ Text:
 - Editor scrolls normally.
 - Search jumps to the active match.
 - Save, Save As, Revert, undo/redo, word wrap, line numbers and syntax highlighting work.
+- Web prose paste and code paste keep clean line structure.
 - Unsaved-change close/open guard appears when expected.
 - Plain-text metadata stays understandable for normal users, while line/column status remains visible.
 - Optional integrated terminal is off by default, can be enabled, runs saved files, and handles missing shell/runtime messages cleanly.

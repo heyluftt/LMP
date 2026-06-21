@@ -63,6 +63,24 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+function easeOutCubic(value: number) {
+  return 1 - Math.pow(1 - value, 3);
+}
+
+function interpolate(start: number, end: number, progress: number) {
+  return start + (end - start) * progress;
+}
+
+function nextFrame() {
+  return new Promise<void>((resolve) => {
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(() => resolve());
+      return;
+    }
+    globalThis.setTimeout(resolve, 16);
+  });
+}
+
 export function computeVideoWindowSize(
   videoWidth: number,
   videoHeight: number,
@@ -95,6 +113,173 @@ export function computeVideoWindowSize(
     Math.round(clamp(width, 360, maxWidth)),
     Math.round(clamp(height, 240, maxHeight)),
   );
+}
+
+function computeAspectPreservingSize(
+  videoWidth: number,
+  videoHeight: number,
+  currentWidth: number,
+  currentHeight: number,
+  monitorWorkArea: WindowWorkArea,
+  compact: boolean,
+) {
+  const aspectRatio = videoWidth / videoHeight;
+  const maxWidth = Math.max(320, Math.round(monitorWorkArea.width * (compact ? 0.86 : 0.9)));
+  const maxHeight = Math.max(220, Math.round(monitorWorkArea.height * (compact ? 0.86 : 0.9)));
+  const minWidth = compact
+    ? aspectRatio < 0.8
+      ? 260
+      : 360
+    : aspectRatio < 0.8
+      ? 380
+      : 720;
+  const minHeight = compact
+    ? aspectRatio < 0.8
+      ? 360
+      : 220
+    : aspectRatio < 0.8
+      ? 520
+      : 460;
+  const currentArea = Math.max(minWidth * minHeight, currentWidth * currentHeight);
+
+  let width = Math.sqrt(currentArea * aspectRatio);
+  let height = width / aspectRatio;
+
+  if (width > maxWidth) {
+    width = maxWidth;
+    height = width / aspectRatio;
+  }
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  if (width < minWidth) {
+    width = minWidth;
+    height = width / aspectRatio;
+  }
+
+  if (height < minHeight) {
+    height = minHeight;
+    width = height * aspectRatio;
+  }
+
+  if (width > maxWidth) {
+    width = maxWidth;
+    height = width / aspectRatio;
+  }
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * aspectRatio;
+  }
+
+  return new LogicalSize(
+    Math.round(clamp(width, minWidth, maxWidth)),
+    Math.round(clamp(height, minHeight, maxHeight)),
+  );
+}
+
+async function applySmoothVideoWindowAspect(
+  videoWidth: number,
+  videoHeight: number,
+  compact: boolean,
+  isCurrent: () => boolean,
+) {
+  if (
+    !Number.isFinite(videoWidth) ||
+    !Number.isFinite(videoHeight) ||
+    videoWidth <= 0 ||
+    videoHeight <= 0
+  ) {
+    return;
+  }
+
+  try {
+    if (!isCurrent()) {
+      return;
+    }
+
+    const window = getCurrentWindow();
+    if ((await window.isMaximized()) || (await window.isFullscreen())) {
+      return;
+    }
+
+    const scaleFactor = await window.scaleFactor();
+    const monitor = await currentMonitor();
+    const monitorScaleFactor = monitor?.scaleFactor ?? scaleFactor;
+    const workArea = monitor?.workArea;
+    const workAreaSize = workArea?.size.toLogical(monitorScaleFactor);
+    const currentSize = (await window.outerSize()).toLogical(scaleFactor);
+    const targetSize = computeAspectPreservingSize(
+      videoWidth,
+      videoHeight,
+      currentSize.width,
+      currentSize.height,
+      {
+        width: workAreaSize?.width ?? 1512,
+        height: workAreaSize?.height ?? 972,
+      },
+      compact,
+    );
+    const currentAspect = currentSize.width / currentSize.height;
+    const targetAspect = targetSize.width / targetSize.height;
+    const aspectDelta = Math.abs(currentAspect - targetAspect);
+    const sizeDelta =
+      Math.abs(currentSize.width - targetSize.width) +
+      Math.abs(currentSize.height - targetSize.height);
+
+    if (aspectDelta < 0.035 || sizeDelta < 10 || !isCurrent()) {
+      return;
+    }
+
+    await window.setMinSize(
+      new LogicalSize(
+        Math.min(targetSize.width, compact ? (videoWidth < videoHeight ? 260 : 360) : videoWidth < videoHeight ? 380 : 720),
+        Math.min(targetSize.height, compact ? (videoWidth < videoHeight ? 360 : 220) : videoWidth < videoHeight ? 520 : 460),
+      ),
+    );
+
+    if (!isCurrent()) {
+      return;
+    }
+
+    const positionBeforeResize = workArea ? await window.outerPosition() : null;
+    const correctionSteps = sizeDelta > 70 ? 5 : 3;
+    for (let step = 1; step <= correctionSteps; step += 1) {
+      if (!isCurrent()) {
+        return;
+      }
+
+      const progress = easeOutCubic(step / correctionSteps);
+      await window.setSize(
+        new LogicalSize(
+          Math.round(interpolate(currentSize.width, targetSize.width, progress)),
+          Math.round(interpolate(currentSize.height, targetSize.height, progress)),
+        ),
+      );
+
+      if (step < correctionSteps) {
+        await nextFrame();
+      }
+    }
+
+    if (workArea && positionBeforeResize) {
+      const size = await window.outerSize();
+      const minX = workArea.position.x;
+      const minY = workArea.position.y;
+      const maxX = Math.max(minX, minX + workArea.size.width - size.width);
+      const maxY = Math.max(minY, minY + workArea.size.height - size.height);
+      const x = clamp(positionBeforeResize.x, minX, maxX);
+      const y = clamp(positionBeforeResize.y, minY, maxY);
+      if (x !== positionBeforeResize.x || y !== positionBeforeResize.y) {
+        await window.setPosition(new PhysicalPosition(x, y));
+      }
+    }
+  } catch {
+    // Aspect correction is only a comfort feature.
+  }
 }
 
 export function windowProfileFor(kind: MediaKind): WindowProfile | null {
@@ -202,6 +387,22 @@ export async function applyMiniWindowProfile(kind: MediaKind) {
   } catch {
     // Mini-player sizing is a comfort feature; playback should keep working if it fails.
   }
+}
+
+export async function applyMiniVideoWindowAspect(
+  videoWidth: number,
+  videoHeight: number,
+  isCurrent: () => boolean = () => true,
+) {
+  await applySmoothVideoWindowAspect(videoWidth, videoHeight, true, isCurrent);
+}
+
+export async function applyPlayerVideoWindowAspect(
+  videoWidth: number,
+  videoHeight: number,
+  isCurrent: () => boolean = () => true,
+) {
+  await applySmoothVideoWindowAspect(videoWidth, videoHeight, false, isCurrent);
 }
 
 export async function applyVideoWindowAspect(

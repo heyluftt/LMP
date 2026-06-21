@@ -1,12 +1,12 @@
 # LMP Project Status
 
-Last updated: 2026-06-13
+Last updated: 2026-06-21
 
 ## Overview
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust. It uses platform and helper tools for low-level media and document work, while the project code focuses on the app shell, routing, controls, viewer state, Windows integration, and UI.
 
-Current public alpha: `v0.2.1-alpha`.
+Current public alpha: `v0.2.2-alpha`.
 
 ## Current Modules
 
@@ -14,9 +14,9 @@ Current public alpha: `v0.2.1-alpha`.
 - Audio: native playback, compact now-playing UI, metadata/artwork helpers, speed, volume, recents, and library.
 - Image/GIF: open/view, zoom, fit, rotate, and navigation.
 - PDF/document: pdf.js rendering, page navigation, zoom, page overview, drag/pan, smooth scroll, and print flow.
-- Text/code: CodeMirror 6 editor with syntax highlighting, search/replace, save/save-as, revert, undo/redo, word wrap, line numbers, tab/font settings, and line/column status.
+- Text/code: CodeMirror 6 editor with syntax highlighting, search/replace, save/save-as, revert, undo/redo, word wrap, line numbers, tab/font settings, writing layout, paste cleanup, and text statistics.
 - Integrated terminal: optional terminal for saved text/code files, disabled by default.
-- Word documents: DOCX/DOC-style files open as editable extracted text copies. Original documents remain unchanged.
+- Word documents: DOCX files open as editable extracted text copies. Legacy DOC files use an external converter when available.
 - Updates: Settings-based updater UI with signed update manifest support for later alpha builds.
 - Playback Engine v2: shared playback control layer and early embedded helper runtime work, kept behind the main playback path.
 - Cache controls: preview, prepared video, and media probe caches can be reviewed and cleared from Settings.
@@ -61,6 +61,7 @@ Helper-engine detection is early alpha. It is not a complete playback backend re
 - MKV, TS, WebM, and less common codecs can vary by machine.
 - Helper-engine fallback work is not yet a full embedded playback backend.
 - DOC/DOCX handling is extraction-based and does not round-trip Word formatting.
+- Legacy DOC preview needs LibreOffice or conversion to DOCX.
 - PDF printing depends on the WebView/system print path and should be tested with real documents and printers.
 - Automated regression coverage is still limited; alpha validation relies on the smoke checklist and practical testing.
 

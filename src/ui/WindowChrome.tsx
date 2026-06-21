@@ -15,6 +15,7 @@ type WindowChromeProps = {
   canGoHome?: boolean;
   miniPlayer: boolean;
   onGoHome?: () => void;
+  onPointerActivity?: () => void;
   onRequestClose?: () => boolean | Promise<boolean>;
   onToggleMiniPlayer: () => void;
 };
@@ -27,6 +28,7 @@ export function WindowChrome({
   canGoHome = false,
   miniPlayer,
   onGoHome,
+  onPointerActivity,
   onRequestClose,
   onToggleMiniPlayer,
 }: WindowChromeProps) {
@@ -77,6 +79,7 @@ export function WindowChrome({
       <header
         className="window-titlebar mini-titlebar"
         onPointerDown={startWindowDrag}
+        onPointerMove={onPointerActivity}
       >
         <MiniPlayerChrome onExitMiniPlayer={onToggleMiniPlayer} />
       </header>
@@ -84,7 +87,12 @@ export function WindowChrome({
   }
 
   return (
-    <header className="window-titlebar" onPointerDown={startWindowDrag} onDoubleClick={toggleWindowMaximize}>
+    <header
+      className="window-titlebar"
+      onPointerDown={startWindowDrag}
+      onPointerMove={onPointerActivity}
+      onDoubleClick={toggleWindowMaximize}
+    >
       <div className="window-title">
         {canGoHome ? (
           <button

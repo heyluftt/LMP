@@ -24,6 +24,9 @@ pub fn runtime_names() -> &'static [&'static str] {
 }
 
 pub(crate) fn trace_libmpv_event(phase: &str, detail: &str) {
+    if !cfg!(debug_assertions) {
+        return;
+    }
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|value| value.as_secs())
@@ -533,7 +536,6 @@ mod platform {
                 return;
             }
         };
-        let _ = ready.send(Ok(()));
         mark_ready(&snapshot, false);
 
         let mut last_poll = Instant::now()
@@ -661,6 +663,7 @@ mod platform {
             .unwrap_or_else(Instant::now);
         let mut render_attempts: u64 = 0;
         let mut render_successes: u64 = 0;
+        let mut ready_sent = false;
         let mut should_stop = false;
 
         while !should_stop {
@@ -693,6 +696,16 @@ mod platform {
                 match render_opengl_frame(&core, &render_context, &gl_surface) {
                     Ok((width, height)) => {
                         render_successes += 1;
+                        if !ready_sent && frame_available && render_session_ready(&snapshot) {
+                            let _ = ready.send(Ok(()));
+                            ready_sent = true;
+                            trace_libmpv_event(
+                                "render-ready",
+                                &format!(
+                                    "attempt={render_attempts} success={render_successes} size={width}x{height}"
+                                ),
+                            );
+                        }
                         if render_attempts <= 12 || render_attempts % 120 == 0 {
                             trace_libmpv_event(
                                 "render-frame-ok",
@@ -724,6 +737,17 @@ mod platform {
                 break;
             }
             std::thread::sleep(Duration::from_millis(10));
+        }
+
+        if !ready_sent {
+            let message = snapshot
+                .lock()
+                .ok()
+                .and_then(|snapshot| snapshot.error.clone())
+                .unwrap_or_else(|| {
+                    "Embedded MPV renderer stopped before playback became ready.".to_string()
+                });
+            let _ = ready.send(Err(message));
         }
 
         let _ = core.command(&["stop"]);
@@ -797,8 +821,7 @@ mod platform {
         core: &mut MpvCore,
         start_seconds: Option<f64>,
     ) -> Result<(), String> {
-        if let Some(start_seconds) =
-            start_seconds.filter(|value| value.is_finite() && *value > 0.5)
+        if let Some(start_seconds) = start_seconds.filter(|value| value.is_finite() && *value > 0.5)
         {
             core.set_option_string("start", &format!("{start_seconds:.3}"))?;
         }
@@ -1063,6 +1086,13 @@ mod platform {
         if let Ok(mut snapshot) = snapshot.lock() {
             snapshot.ready = ready;
         }
+    }
+
+    fn render_session_ready(snapshot: &Arc<Mutex<SessionSnapshot>>) -> bool {
+        snapshot
+            .lock()
+            .map(|snapshot| snapshot.ready && snapshot.error.is_none())
+            .unwrap_or(false)
     }
 
     fn mark_stopped(snapshot: &Arc<Mutex<SessionSnapshot>>) {

@@ -2,7 +2,7 @@
 
 LMP is a Windows-first media player and file viewer suite built with Tauri, React, TypeScript, and Rust.
 
-Current alpha: `v0.2.1-alpha`. Download the latest Windows package from the GitHub Releases page. Alpha builds are unsigned, so Windows SmartScreen may show a warning during download or installation.
+Current alpha: `v0.2.2-alpha`. Download the latest Windows package from the GitHub Releases page. Alpha builds are unsigned, so Windows SmartScreen may show a warning during download or installation.
 
 ## What It Does
 
@@ -67,6 +67,7 @@ npm.cmd run verify:windows
 
 - [Project status](docs/PROJECT_STATUS.md)
 - [Alpha smoke checklist](docs/ALPHA_SMOKE_CHECKLIST.md)
+- [v0.2.2 alpha release notes](RELEASE_NOTES_v0.2.2-alpha.md)
 - [v0.2.1 alpha release notes](RELEASE_NOTES_v0.2.1-alpha.md)
 - [v0.2.0 alpha release notes](RELEASE_NOTES_v0.2.0-alpha.md)
 - [v0.1.3 alpha release notes](RELEASE_NOTES_v0.1.3-alpha.md)

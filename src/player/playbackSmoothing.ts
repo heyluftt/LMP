@@ -30,7 +30,7 @@ export function commandSeekTarget(
     return clampMediaTime(command.seconds, duration);
   }
   if (command.type === "frameStep") {
-    return clampMediaTime(currentTime + command.direction / 30, duration);
+    return clampMediaTime(currentTime + command.direction * (command.seconds ?? 1 / 30), duration);
   }
   if (command.type === "stop") {
     return 0;

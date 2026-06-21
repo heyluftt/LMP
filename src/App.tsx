@@ -19,8 +19,6 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -45,7 +43,9 @@ import {
 } from "./lib/mediaFormat";
 import {
   applyHomeWindowProfile,
+  applyMiniVideoWindowAspect,
   applyMiniWindowProfile,
+  applyPlayerVideoWindowAspect,
   applyTextDraftWindowProfile,
   applyVideoWindowAspect,
   applyWindowProfile,
@@ -70,6 +70,7 @@ import {
   isLibMpvActiveFor,
   isMpvActiveFor,
   probeGstreamer,
+  hideNativeVideoSurface,
   readLibMpvCoreSession,
   readMpvPlaybackSession,
   readGstreamerPlaybackSession,
@@ -105,6 +106,23 @@ import {
   playbackPathLabel,
   resolvePlaybackStartupPlan,
 } from "./player/playbackEnginePolicy";
+import {
+  appendUniquePaths,
+  clearQueueKeepingCurrent,
+  createQueueRequest,
+  moveQueueItem,
+  queueIndexOfPath,
+  queuePosition,
+  queuePathEquals,
+  removeQueueItem,
+  transitionAllowsWindowFocus,
+  transitionAllowsWindowReveal,
+  uniquePlayablePaths,
+  uniquePaths,
+  type PlaybackTransitionKind,
+  type PlayPathOptions,
+  type PlayQueueOptions,
+} from "./player/queue";
 import { ResumeController } from "./player/resumeController";
 import { defaultSettings, readSettings, updateSettings } from "./player/settings";
 import type { PlayerSettings } from "./player/settings";
@@ -136,13 +154,20 @@ import {
   type TextFileContent,
   type TextViewState,
 } from "./viewers/text";
-import { TextTools } from "./viewers/textTools";
+import {
+  countTextLines,
+  suggestedExtractedTextPath,
+  wordDocumentToEditableText,
+} from "./viewers/textDocuments";
+import { collectTextMatches } from "./viewers/textSearch";
+import { TextWorkspace } from "./viewers/TextWorkspace";
 import {
   MediaShelves,
   type LibraryFilter,
   type LibrarySort,
   type MediaShelfMode,
 } from "./ui/MediaShelves";
+import { QueueShelf } from "./ui/shelves/QueueShelf";
 import { ContextMenu, type ContextMenuSection } from "./ui/ContextMenu";
 import { TransportDock } from "./ui/TransportDock";
 import { WindowChrome } from "./ui/WindowChrome";
@@ -168,12 +193,6 @@ import type {
 } from "./player/types";
 
 type ToastTone = "info" | "error" | "success";
-
-const TextEditorSurface = lazy(() =>
-  import("./viewers/textEditorSurface").then((module) => ({
-    default: module.TextEditorSurface,
-  })),
-);
 
 type Toast = {
   tone: ToastTone;
@@ -250,11 +269,6 @@ type OpeningMediaState = {
   loadId: number;
 };
 
-type TextMatch = {
-  start: number;
-  end: number;
-};
-
 type NativeAudioTrack = {
   enabled: boolean;
 };
@@ -264,6 +278,8 @@ type NativeAudioTrackList = {
   [index: number]: NativeAudioTrack | undefined;
 };
 
+type QueueSource = "single" | "manual" | "auto-folder";
+
 const playbackPositionRenderIntervalMs = 220;
 const playbackPositionJumpThresholdSeconds = 0.45;
 const playbackProgressAttemptIntervalMs = 750;
@@ -272,6 +288,9 @@ const visiblePreparationDelayMs = 1200;
 const deferredMediaDetailsDelayMs = 180;
 const homeSourceUrl = "lmp://home";
 const newTextSourceUrl = "lmp://new-text";
+const playbackDebugLoggingEnabled = import.meta.env.DEV;
+const startupFileRetryDelayMs = 80;
+const startupFileRetryCount = 6;
 
 function compareLibraryItems(a: MediaFolderItem, b: MediaFolderItem, sort: LibrarySort) {
   if (a.kind === "folder" && b.kind !== "folder") {
@@ -300,94 +319,6 @@ function compareLibraryItems(a: MediaFolderItem, b: MediaFolderItem, sort: Libra
     numeric: true,
     sensitivity: "base",
   });
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function collectTextMatches(
-  text: string,
-  query: string,
-  caseSensitive: boolean,
-  wholeWord: boolean,
-) {
-  const needle = query.trim();
-  if (!needle) {
-    return [];
-  }
-
-  const pattern = wholeWord ? `\\b${escapeRegExp(needle)}\\b` : escapeRegExp(needle);
-  const flags = caseSensitive ? "g" : "gi";
-  const regex = new RegExp(pattern, flags);
-  const matches: TextMatch[] = [];
-
-  for (const match of text.matchAll(regex)) {
-    const value = match[0];
-    if (!value) {
-      continue;
-    }
-    const start = match.index ?? 0;
-    matches.push({ start, end: start + value.length });
-  }
-
-  return matches;
-}
-
-function countTextLines(text: string) {
-  return text.length === 0 ? 0 : text.split("\n").length;
-}
-
-function cleanWordBlockText(text: string) {
-  return normalizeTextContent(text)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function headingPrefix(kind: string) {
-  const match = /^heading([1-6])$/i.exec(kind);
-  const level = match ? Number(match[1]) : 1;
-  return "#".repeat(Math.max(1, Math.min(6, level)));
-}
-
-function wordDocumentToEditableText(
-  document: WordDocumentContent,
-  format: PlayerSettings["textWordExtractionFormat"],
-) {
-  const blocks = document.blocks
-    .map((block) => {
-      const lines = cleanWordBlockText(block.text);
-      if (lines.length === 0) {
-        return "";
-      }
-      if (format === "plain") {
-        return lines.join("\n");
-      }
-
-      if (block.kind === "list") {
-        return lines.map((line) => `- ${line}`).join("\n");
-      }
-      if (block.kind === "notice") {
-        return lines.map((line) => `> ${line}`).join("\n");
-      }
-      if (block.kind === "heading" || block.kind.toLowerCase().startsWith("heading")) {
-        return `${headingPrefix(block.kind)} ${lines.join(" ")}`;
-      }
-      return lines.join("\n");
-    })
-    .filter(Boolean);
-
-  return normalizeTextContent(blocks.join("\n\n"));
-}
-
-function suggestedExtractedTextPath(path: string) {
-  const slash = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
-  const folder = slash >= 0 ? path.slice(0, slash + 1) : "";
-  const name = slash >= 0 ? path.slice(slash + 1) : path;
-  const dot = name.lastIndexOf(".");
-  const stem = dot > 0 ? name.slice(0, dot) : name || "document";
-  return `${folder}${stem}.extracted.txt`;
 }
 
 function describeMediaError(media: HTMLMediaElement) {
@@ -545,6 +476,21 @@ function inspectionKindClass(item: MediaInspectionItem) {
   return "meta";
 }
 
+function frameStepSecondsFromInspection(items: MediaInspectionItem[]) {
+  for (const item of items) {
+    const detail = item.detail ?? "";
+    const match = detail.match(/\b(\d+(?:\.\d+)?)\s*fps\b/i);
+    if (!match) {
+      continue;
+    }
+    const fps = Number(match[1]);
+    if (Number.isFinite(fps) && fps >= 1 && fps <= 240) {
+      return 1 / fps;
+    }
+  }
+  return 1 / 30;
+}
+
 function getNativeAudioTracks(media: HTMLMediaElement | null) {
   return (media as unknown as { audioTracks?: NativeAudioTrackList } | null)?.audioTracks ?? null;
 }
@@ -605,10 +551,6 @@ function srtToVtt(text: string) {
     .join("\n\n");
 
   return `WEBVTT\n\n${cues}\n`;
-}
-
-function uniquePaths(paths: string[]) {
-  return paths.filter((path, index) => path && paths.indexOf(path) === index);
 }
 
 type HomeOpenTarget = "text" | "video" | "audio" | "image" | "pdf" | "word";
@@ -873,12 +815,16 @@ function App() {
   const [promptDialog, setPromptDialog] = useState<PromptDialog | null>(null);
   const [promptInput, setPromptInput] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [miniPlayer, setMiniPlayer] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [controlsPinned, setControlsPinned] = useState(false);
   const [controlActivity, setControlActivity] = useState(0);
   const [videoCursorHidden, setVideoCursorHidden] = useState(false);
   const volumeRef = useRef(volume);
+  const fallbackEngineRef = useRef(settings.fallbackEngine);
+  const embeddedMpvBypassPathRef = useRef<string | null>(null);
+  const embeddedMpvHealthFallbackPathRef = useRef<string | null>(null);
   const lastControlRevealRef = useRef(0);
   const loadIdRef = useRef(0);
   const activePlaybackPathRef = useRef<string | null>(null);
@@ -912,6 +858,7 @@ function App() {
   const subtitleUrlRef = useRef<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
   const windowRevealTimerRef = useRef<number | null>(null);
+  const windowRevealAllowedRef = useRef(true);
   const windowRevealFocusRef = useRef(true);
   const mediaReadyRevealSuppressRef = useRef<{
     loadId: number;
@@ -923,7 +870,14 @@ function App() {
   const videoCursorHideTimerRef = useRef<number | null>(null);
   const videoWindowAspectTokenRef = useRef<string | null>(null);
   const videoWindowAspectRetryRef = useRef<number | null>(null);
+  const playerVideoAspectTimerRef = useRef<number | null>(null);
+  const playerVideoAspectCorrectionRef = useRef(false);
+  const miniVideoAspectTimerRef = useRef<number | null>(null);
+  const miniVideoAspectCorrectionRef = useRef(false);
+  const miniPlayerActiveRef = useRef(false);
   const homeProfileAppliedRef = useRef(false);
+  const startupFileAttemptRef = useRef(0);
+  const queueSourceRef = useRef<QueueSource>("single");
   const confirmDialogResolverRef = useRef<((value: boolean) => void) | null>(null);
   const promptDialogResolverRef = useRef<((value: string | null) => void) | null>(null);
   const settingsRef = useRef(settings);
@@ -932,6 +886,9 @@ function App() {
   speedRef.current = speed;
 
   const tracePlaybackFocus = useCallback((phase: string, details: Record<string, unknown> = {}) => {
+    if (!playbackDebugLoggingEnabled) {
+      return;
+    }
     const activePath = activePlaybackPathRef.current;
     void invoke("log_frontend_playback_event", {
       phase,
@@ -947,6 +904,9 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!playbackDebugLoggingEnabled) {
+      return;
+    }
     const onFocus = () => tracePlaybackFocus("browser-window-focus");
     const onBlur = () => tracePlaybackFocus("browser-window-blur");
     const onVisibilityChange = () =>
@@ -966,6 +926,20 @@ function App() {
     if (videoWindowAspectRetryRef.current !== null) {
       window.clearTimeout(videoWindowAspectRetryRef.current);
       videoWindowAspectRetryRef.current = null;
+    }
+  }, []);
+
+  const cancelMiniVideoAspectTimer = useCallback(() => {
+    if (miniVideoAspectTimerRef.current !== null) {
+      window.clearTimeout(miniVideoAspectTimerRef.current);
+      miniVideoAspectTimerRef.current = null;
+    }
+  }, []);
+
+  const cancelPlayerVideoAspectTimer = useCallback(() => {
+    if (playerVideoAspectTimerRef.current !== null) {
+      window.clearTimeout(playerVideoAspectTimerRef.current);
+      playerVideoAspectTimerRef.current = null;
     }
   }, []);
 
@@ -1006,10 +980,11 @@ function App() {
     [currentPath, isNewTextDraft],
   );
   const currentKind: MediaKind = textView.sourceType === "word-extract" ? "text" : sourceKind;
-  const queueIndex = currentPath ? queue.indexOf(currentPath) : -1;
-  const queueCount = queue.length;
-  const hasPreviousQueueItem = queueIndex > 0;
-  const hasNextQueueItem = queueIndex >= 0 && queueIndex < queue.length - 1;
+  const queueState = useMemo(() => queuePosition(queue, currentPath), [currentPath, queue]);
+  const queueIndex = queueState.index;
+  const queueCount = queueState.count;
+  const hasPreviousQueueItem = queueState.hasPrevious;
+  const hasNextQueueItem = queueState.hasNext;
   const gstreamerActiveForCurrent = isGstreamerActiveFor(gstreamerSession, currentPath);
   const mpvActiveForCurrent = isMpvActiveFor(mpvSession, currentPath);
   const libMpvActiveForCurrent = isLibMpvActiveFor(libMpvSession, currentPath);
@@ -1038,6 +1013,7 @@ function App() {
   const isTimedMedia = mediaCapabilities.timedPlayback;
   const supportsMiniPlayer = mediaCapabilities.miniPlayer;
   const miniPlayerActive = miniPlayer && supportsMiniPlayer;
+  miniPlayerActiveRef.current = miniPlayerActive;
 
   const scheduleVideoWindowAspectResize = useCallback(
     (videoWidth: number, videoHeight: number) => {
@@ -1140,6 +1116,101 @@ function App() {
     scheduleVideoWindowAspectResize,
   ]);
 
+  useEffect(() => {
+    if (!isVideo || miniPlayerActive || !mediaDetails.width || !mediaDetails.height) {
+      cancelPlayerVideoAspectTimer();
+      return;
+    }
+
+    const loadId = loadIdRef.current;
+    const path = activePlaybackPathRef.current;
+    const videoWidth = mediaDetails.width;
+    const videoHeight = mediaDetails.height;
+    const isCurrent = () =>
+      loadId === loadIdRef.current &&
+      activePlaybackPathRef.current === path &&
+      !miniPlayerActiveRef.current;
+    const applyAspect = () => {
+      playerVideoAspectTimerRef.current = null;
+      if (playerVideoAspectCorrectionRef.current) {
+        return;
+      }
+      playerVideoAspectCorrectionRef.current = true;
+      void applyPlayerVideoWindowAspect(videoWidth, videoHeight, isCurrent).finally(() => {
+        playerVideoAspectCorrectionRef.current = false;
+      });
+    };
+    const scheduleAspect = (delayMs = 420) => {
+      if (playerVideoAspectCorrectionRef.current) {
+        return;
+      }
+      cancelPlayerVideoAspectTimer();
+      playerVideoAspectTimerRef.current = window.setTimeout(applyAspect, delayMs);
+    };
+    const handleWindowResize = () => scheduleAspect();
+
+    window.addEventListener("resize", handleWindowResize);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowResize);
+      cancelPlayerVideoAspectTimer();
+    };
+  }, [
+    cancelPlayerVideoAspectTimer,
+    isVideo,
+    mediaDetails.height,
+    mediaDetails.width,
+    miniPlayerActive,
+  ]);
+
+  useEffect(() => {
+    if (!miniPlayerActive || !isVideo || !mediaDetails.width || !mediaDetails.height) {
+      cancelMiniVideoAspectTimer();
+      return;
+    }
+
+    const loadId = loadIdRef.current;
+    const path = activePlaybackPathRef.current;
+    const videoWidth = mediaDetails.width;
+    const videoHeight = mediaDetails.height;
+    const isCurrent = () =>
+      loadId === loadIdRef.current &&
+      activePlaybackPathRef.current === path &&
+      miniPlayerActiveRef.current;
+    const applyAspect = () => {
+      miniVideoAspectTimerRef.current = null;
+      if (miniVideoAspectCorrectionRef.current) {
+        return;
+      }
+      miniVideoAspectCorrectionRef.current = true;
+      void applyMiniVideoWindowAspect(videoWidth, videoHeight, isCurrent).finally(() => {
+        miniVideoAspectCorrectionRef.current = false;
+      });
+    };
+    const scheduleAspect = (delayMs = 360) => {
+      if (miniVideoAspectCorrectionRef.current) {
+        return;
+      }
+      cancelMiniVideoAspectTimer();
+      miniVideoAspectTimerRef.current = window.setTimeout(applyAspect, delayMs);
+    };
+    const handleWindowResize = () => scheduleAspect();
+
+    scheduleAspect(120);
+    window.addEventListener("resize", handleWindowResize);
+
+    return () => {
+      window.removeEventListener("resize", handleWindowResize);
+      cancelMiniVideoAspectTimer();
+    };
+  }, [
+    cancelMiniVideoAspectTimer,
+    isVideo,
+    mediaDetails.height,
+    mediaDetails.width,
+    miniPlayerActive,
+  ]);
+
   useEffect(() => cancelVideoWindowAspectRetry, [cancelVideoWindowAspectRetry]);
 
   const supportsQueue = mediaCapabilities.queue;
@@ -1179,6 +1250,7 @@ function App() {
   }, [hasMedia, showHome]);
 
   const gstreamerBackend = playbackBackends.find((backend) => backend.id === "gstreamer");
+  const libMpvBackend = playbackBackends.find((backend) => backend.id === "libmpv");
   const fallbackStatusLabel = playbackPathLabel(settings.fallbackEngine, playbackBackends);
   const backendHint = playbackBackendHint(settings.fallbackEngine, playbackBackends);
   const activeSettingsTabs = settingsTabsFor(currentKind);
@@ -1235,6 +1307,7 @@ function App() {
   const controlsHidden =
     hasMedia &&
     settings.autoHideControls &&
+    !libMpvActiveForCurrent &&
     !controlsVisible &&
     (isVideo || isStaticViewer || !paused) &&
     !controlsPinned &&
@@ -1266,9 +1339,9 @@ function App() {
   );
   const videoSurfaceStyle = useMemo<CSSProperties>(
     () => ({
-      objectFit: "cover",
+      objectFit: (isFullscreen || isWindowMaximized) && isVideo ? "contain" : "cover",
     }),
-    [],
+    [isFullscreen, isVideo, isWindowMaximized],
   );
   const overviewInspectionItems = useMemo(
     () => mediaInspection?.summary.filter((item) => !isStreamInspectionItem(item)) ?? [],
@@ -1281,6 +1354,10 @@ function App() {
   const videoInspectionItems = useMemo(
     () => streamInspectionItems.filter((item) => inspectionKindClass(item) === "video"),
     [streamInspectionItems],
+  );
+  const frameStepSeconds = useMemo(
+    () => frameStepSecondsFromInspection(videoInspectionItems),
+    [videoInspectionItems],
   );
   const audioInspectionItems = useMemo(
     () => streamInspectionItems.filter((item) => inspectionKindClass(item) === "audio"),
@@ -1461,6 +1538,17 @@ function App() {
     }, 0);
   }, [cancelDeferredWindowReveal, tracePlaybackFocus]);
 
+  const revealPlaybackWindow = useCallback(
+    (focus = windowRevealFocusRef.current) => {
+      if (!windowRevealAllowedRef.current) {
+        tracePlaybackFocus("reveal-skip-transition", { focus });
+        return;
+      }
+      revealCurrentWindow(focus);
+    },
+    [revealCurrentWindow, tracePlaybackFocus],
+  );
+
   const scheduleWindowRevealFallback = useCallback(
     (path: string, loadId: number, delayMs = 1400, focus = true) => {
       if (windowRevealTimerRef.current !== null) {
@@ -1532,8 +1620,16 @@ function App() {
           focus: windowRevealFocusRef.current,
           loadId,
           readyState: media.readyState,
+          revealAllowed: windowRevealAllowedRef.current,
         });
         setOpeningMedia((current) => (current?.loadId === loadId ? null : current));
+        if (!windowRevealAllowedRef.current) {
+          tracePlaybackFocus("media-ready-reveal-skip", {
+            loadId,
+            reason: "transition",
+          });
+          return;
+        }
         revealCurrentWindow(windowRevealFocusRef.current);
       }
     },
@@ -1705,8 +1801,12 @@ function App() {
     };
   }, []);
 
+  const nativeVideoSurfaceSuppressed =
+    libMpvActiveForCurrent &&
+    (Boolean(shelfMode) || toolsOpen || contextMenu !== null || confirmDialog !== null || promptDialog !== null);
+
   const syncNativeVideoSurfaceRect = useCallback(async () => {
-    if (!libMpvActiveForCurrent) {
+    if (!libMpvActiveForCurrent || nativeVideoSurfaceSuppressed) {
       return;
     }
 
@@ -1716,7 +1816,15 @@ function App() {
     }
 
     await showNativeVideoSurface(rect);
-  }, [libMpvActiveForCurrent, measureNativeVideoSurfaceRect]);
+  }, [libMpvActiveForCurrent, measureNativeVideoSurfaceRect, nativeVideoSurfaceSuppressed]);
+
+  useEffect(() => {
+    if (!libMpvActiveForCurrent || !nativeVideoSurfaceSuppressed) {
+      return;
+    }
+
+    void hideNativeVideoSurface().catch(() => undefined);
+  }, [libMpvActiveForCurrent, nativeVideoSurfaceSuppressed]);
 
   const stopTrackedLibMpvRender = useCallback(
     async (silent = false) => {
@@ -1793,10 +1901,17 @@ function App() {
   );
 
   const startTrackedLibMpvRender = useCallback(
-    async (path: string, loadId: number, startSeconds?: number | null, focusWindow = true) => {
+    async (
+      path: string,
+      loadId: number,
+      startSeconds?: number | null,
+      focusWindow = true,
+      revealWindow = focusWindow,
+    ) => {
       tracePlaybackFocus("libmpv-render-start-request", {
         focusWindow,
         loadId,
+        revealWindow,
         startSeconds: startSeconds ?? "-",
         title: fileName(path),
       });
@@ -1806,6 +1921,7 @@ function App() {
           reason: "stale-before-measure",
           focusWindow,
           loadId,
+          revealWindow,
           title: fileName(path),
         });
         return emptyLibMpvCoreSession;
@@ -1817,6 +1933,7 @@ function App() {
           reason: "no-surface-rect",
           focusWindow,
           loadId,
+          revealWindow,
           title: fileName(path),
         });
         throw new Error("Video surface is not ready yet.");
@@ -1824,6 +1941,7 @@ function App() {
       tracePlaybackFocus("libmpv-render-surface-measured", {
         focusWindow,
         loadId,
+        revealWindow,
         rect: `${rect.width}x${rect.height}+${rect.left}+${rect.top}`,
         title: fileName(path),
       });
@@ -1843,6 +1961,7 @@ function App() {
           error: compactError(error),
           focusWindow,
           loadId,
+          revealWindow,
           title: fileName(path),
         });
         throw new Error(`Render API failed: ${compactError(error)}`);
@@ -1852,6 +1971,7 @@ function App() {
           reason: "stale-after-start",
           focusWindow,
           loadId,
+          revealWindow,
           title: fileName(path),
         });
         void stopLibMpvRenderSession().catch(() => undefined);
@@ -1869,10 +1989,10 @@ function App() {
       if (session.width > 0 && session.height > 0) {
         setMediaDetails({
           width: Math.round(session.width),
-          height: Math.round(session.height),
-          duration: session.duration > 0 ? session.duration : null,
-        });
-        if (focusWindow) {
+            height: Math.round(session.height),
+            duration: session.duration > 0 ? session.duration : null,
+          });
+        if (revealWindow) {
           scheduleVideoWindowAspectResize(session.width, session.height);
         }
       } else if (session.duration > 0) {
@@ -1882,12 +2002,21 @@ function App() {
         }));
       }
       setOpeningMedia(null);
-      revealCurrentWindow(focusWindow);
+      if (revealWindow) {
+        revealCurrentWindow(focusWindow);
+      } else {
+        tracePlaybackFocus("libmpv-render-reveal-skip", {
+          loadId,
+          reason: "transition",
+          title: fileName(path),
+        });
+      }
       tracePlaybackFocus("libmpv-render-start-ok", {
         duration: session.duration,
         focusWindow,
         loadId,
         position: session.position,
+        revealWindow,
         title: fileName(path),
       });
       return session;
@@ -2259,8 +2388,17 @@ function App() {
   confirmWindowCloseRef.current = confirmWindowClose;
 
   const playPath = useCallback(
-    async (path: string, options: { focusWindow?: boolean; skipTextGuard?: boolean } = {}) => {
-      const shouldFocusWindow = options.focusWindow ?? true;
+    async (path: string, options: PlayPathOptions = {}) => {
+      const transition: PlaybackTransitionKind =
+        options.transition ?? (options.focusWindow === false ? "internal-queue" : "user-open");
+      const shouldRevealWindow =
+        options.revealWindow ??
+        (options.focusWindow !== undefined
+          ? options.focusWindow
+          : transitionAllowsWindowReveal(transition));
+      const shouldFocusWindow =
+        options.focusWindow ?? (shouldRevealWindow && transitionAllowsWindowFocus(transition));
+      windowRevealAllowedRef.current = shouldRevealWindow;
       windowRevealFocusRef.current = shouldFocusWindow;
       if (!options.skipTextGuard && !(await confirmTextNavigation(path))) {
         return;
@@ -2272,10 +2410,18 @@ function App() {
         recentOpenRequest?.path === path &&
         now - recentOpenRequest.at < 1600
       ) {
-        revealCurrentWindow(shouldFocusWindow);
+        if (shouldRevealWindow) {
+          revealCurrentWindow(shouldFocusWindow);
+        }
         return;
       }
       recentOpenRequestRef.current = { path, at: now };
+      if (embeddedMpvBypassPathRef.current && embeddedMpvBypassPathRef.current !== path) {
+        embeddedMpvBypassPathRef.current = null;
+      }
+      if (embeddedMpvHealthFallbackPathRef.current && embeddedMpvHealthFallbackPathRef.current !== path) {
+        embeddedMpvHealthFallbackPathRef.current = null;
+      }
 
       const loadId = loadIdRef.current + 1;
       loadIdRef.current = loadId;
@@ -2300,7 +2446,9 @@ function App() {
         activePlaybackPathRef.current = path;
         setCurrentPath(path);
         setOpeningMedia({ kind: optimisticKind, path, phase: "opening", loadId: loadId });
-        revealCurrentWindowAfterRender(shouldFocusWindow);
+        if (shouldRevealWindow) {
+          revealCurrentWindowAfterRender(shouldFocusWindow);
+        }
       } else {
         setOpeningMedia(null);
       }
@@ -2335,17 +2483,21 @@ function App() {
         const viewKind: MediaKind = opensAsExtractedWord ? "text" : kind;
         if (kind === "unknown") {
           setOpeningMedia(null);
-          revealCurrentWindow(shouldFocusWindow);
+          if (shouldRevealWindow) {
+            revealCurrentWindow(shouldFocusWindow);
+          }
           showToast("This file type is not supported by LMP yet.", "error");
           return;
         }
 
         const staticKind = kind === "image" || kind === "document" || kind === "text";
         let playablePath = media.path;
+        const effectiveFallbackEngine =
+          embeddedMpvBypassPathRef.current === media.path ? "auto" : settings.fallbackEngine;
         const playbackPlan = resolvePlaybackStartupPlan(
           media.path,
           kind,
-          settings.fallbackEngine,
+          effectiveFallbackEngine,
         );
         const needsNativePrep = playbackPlan.prepareForNative;
         const startupResume =
@@ -2446,12 +2598,16 @@ function App() {
                 suggestedSavePath: suggestedExtractedTextPath(media.path),
               });
             }
-            revealCurrentWindow(shouldFocusWindow);
+            if (shouldRevealWindow) {
+              revealCurrentWindow(shouldFocusWindow);
+            }
             return;
           }
           if (kind === "document") {
             setSourceUrl(convertFileSrc(media.path));
-            revealCurrentWindow(shouldFocusWindow);
+            if (shouldRevealWindow) {
+              revealCurrentWindow(shouldFocusWindow);
+            }
             return;
           }
           if (kind === "text") {
@@ -2488,7 +2644,9 @@ function App() {
             }
           }
           setSourceUrl(convertFileSrc(media.path));
-          revealCurrentWindow(shouldFocusWindow);
+          if (shouldRevealWindow) {
+            revealCurrentWindow(shouldFocusWindow);
+          }
           return;
         }
 
@@ -2502,7 +2660,9 @@ function App() {
             setSourceUrl(null);
             setOpeningMedia(null);
             scheduleDeferredMediaDetails(media.path, kind, loadId);
-            revealCurrentWindow(shouldFocusWindow);
+            if (shouldRevealWindow) {
+              revealCurrentWindow(shouldFocusWindow);
+            }
             return;
           } catch (error) {
             if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
@@ -2512,7 +2672,7 @@ function App() {
           }
         }
 
-        if (playbackPlan.useEmbeddedRenderer) {
+        if (playbackPlan.mode === "embedded-mpv" && playbackPlan.useEmbeddedRenderer) {
           try {
             setOpeningMedia((current) =>
               current?.loadId === loadId
@@ -2524,6 +2684,7 @@ function App() {
               loadId,
               startupResume && startupResume.position > 5 ? startupResume.position : null,
               shouldFocusWindow,
+              shouldRevealWindow,
             );
             if (loadId !== loadIdRef.current || activePlaybackPathRef.current !== media.path) {
               return;
@@ -2580,7 +2741,9 @@ function App() {
               playablePath = media.path;
             } else {
               setOpeningMedia(null);
-              revealCurrentWindow(shouldFocusWindow);
+              if (shouldRevealWindow) {
+                revealCurrentWindow(shouldFocusWindow);
+              }
               showToast(
                 `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
                   fallbackError,
@@ -2603,13 +2766,17 @@ function App() {
         }
         setSourceUrl(convertFileSrc(playablePath));
         scheduleDeferredMediaDetails(media.path, kind, loadId);
-        scheduleWindowRevealFallback(media.path, loadId, kind === "audio" ? 900 : 1400, shouldFocusWindow);
+        if (shouldRevealWindow) {
+          scheduleWindowRevealFallback(media.path, loadId, kind === "audio" ? 900 : 1400, shouldFocusWindow);
+        }
       } catch (error) {
         if (loadId !== loadIdRef.current) {
           return;
         }
         setOpeningMedia(null);
-        revealCurrentWindow(shouldFocusWindow);
+        if (shouldRevealWindow) {
+          revealCurrentWindow(shouldFocusWindow);
+        }
         showToast(compactError(error), "error");
       }
     },
@@ -2640,45 +2807,56 @@ function App() {
     ],
   );
 
+  const applyFolderQueueForPath = useCallback(
+    async (path: string) => {
+      if (mediaKind(path) === "text") {
+        return false;
+      }
+
+      const siblings = await invoke<string[]>("list_sibling_media", { mediaPath: path });
+      const siblingQueue = uniquePlayablePaths(siblings);
+      const siblingIndex = queueIndexOfPath(siblingQueue, path);
+      const activePath = activePlaybackPathRef.current;
+      if (
+        siblingQueue.length <= 1 ||
+        siblingIndex < 0 ||
+        (activePath && !queuePathEquals(activePath, path))
+      ) {
+        return false;
+      }
+
+      queueSourceRef.current = "auto-folder";
+      setQueue(siblingQueue);
+      return true;
+    },
+    [],
+  );
+
   const playQueue = useCallback(
-    async (paths: string[], startIndex = 0) => {
-      let nextQueue = uniquePaths(paths);
-      if (nextQueue.length === 0) {
+    async (paths: string[], startIndex = 0, options: PlayQueueOptions = {}) => {
+      const request = createQueueRequest(paths, startIndex);
+      if (!request) {
         return;
       }
 
-      let boundedIndex = Math.max(0, Math.min(nextQueue.length - 1, startIndex));
-      const focusedPath = nextQueue[boundedIndex] ?? nextQueue[0]!;
-      if (!(await confirmTextNavigation(focusedPath))) {
+      if (!(await confirmTextNavigation(request.focusedPath))) {
         return;
       }
-      if (mediaKind(focusedPath) === "text") {
-        nextQueue = [focusedPath];
-        boundedIndex = 0;
-      }
 
-      setQueue(nextQueue);
-      const playbackTask = playPath(nextQueue[boundedIndex], { skipTextGuard: true });
+      queueSourceRef.current = request.queue.length > 1 ? "manual" : "single";
+      setQueue(request.queue);
+      const playbackTask = playPath(request.focusedPath, {
+        skipTextGuard: true,
+        transition: options.transition ?? "user-open",
+      });
 
-      if (settings.autoQueueFolder && nextQueue.length === 1 && mediaKind(focusedPath) !== "text") {
-        void invoke<string[]>("list_sibling_media", { mediaPath: focusedPath })
-          .then((siblings) => {
-            const siblingQueue = uniquePaths(siblings);
-            const siblingIndex = siblingQueue.indexOf(focusedPath);
-            if (
-              siblingQueue.length > 1 &&
-              siblingIndex >= 0 &&
-              activePlaybackPathRef.current === focusedPath
-            ) {
-              setQueue(siblingQueue);
-            }
-          })
-          .catch(() => undefined);
+      if (settings.autoQueueFolder && request.queue.length === 1) {
+        void applyFolderQueueForPath(request.focusedPath).catch(() => undefined);
       }
 
       await playbackTask;
     },
-    [confirmTextNavigation, playPath, settings.autoQueueFolder],
+    [applyFolderQueueForPath, confirmTextNavigation, playPath, settings.autoQueueFolder],
   );
 
   const appendToQueue = useCallback(
@@ -2688,12 +2866,13 @@ function App() {
         return;
       }
 
+      queueSourceRef.current = "manual";
       setQueue((current) => {
-        return uniquePaths([...current, ...additions]);
+        return appendUniquePaths(current, additions);
       });
 
       if (!currentPath || playFirstNew) {
-        await playPath(additions[0]);
+        await playPath(additions[0], { transition: "user-open" });
       } else {
         showToast(`${additions.length} item${additions.length === 1 ? "" : "s"} added to queue.`, "success");
       }
@@ -2703,12 +2882,12 @@ function App() {
 
   const handleIncomingOpenRequest = useCallback(
     async (paths: string[]) => {
-      const playablePaths = uniquePaths(paths).filter((path) => mediaKind(path) !== "unknown");
+      const playablePaths = uniquePlayablePaths(paths);
       if (playablePaths.length === 0) {
         return;
       }
 
-      await playQueue(playablePaths);
+      await playQueue(playablePaths, 0, { transition: "open-with" });
     },
     [playQueue],
   );
@@ -2719,6 +2898,13 @@ function App() {
         .map((path) => mediaKind(path))
         .filter((kind) => kind !== "unknown");
       if (!hasMedia || currentKind === "unknown" || kinds.length === 0) {
+        return true;
+      }
+
+      const staticOnly = kinds.every(
+        (kind) => kind === "text" || kind === "document" || kind === "image",
+      );
+      if (staticOnly) {
         return true;
       }
 
@@ -2751,6 +2937,7 @@ function App() {
     setOpeningMedia(null);
     setCurrentPath(null);
     setCurrentMedia(null);
+    queueSourceRef.current = "single";
     setQueue([]);
     setSourceUrl(newTextSourceUrl);
     setMediaInspection(null);
@@ -2791,6 +2978,8 @@ function App() {
     setMoments([]);
     setToolsOpen(false);
     setShelfMode(null);
+    windowRevealAllowedRef.current = true;
+    windowRevealFocusRef.current = true;
     void applyTextDraftWindowProfile();
     revealCurrentWindow();
     window.setTimeout(() => textEditorRef.current?.focus(), 120);
@@ -2834,6 +3023,7 @@ function App() {
     setOpeningMedia(null);
     setCurrentPath(null);
     setCurrentMedia(null);
+    queueSourceRef.current = "single";
     setQueue([]);
     setSourceUrl(null);
     setMediaInspection(null);
@@ -2873,6 +3063,8 @@ function App() {
     setControlsVisible(true);
     setControlActivity((value) => value + 1);
     setShelfMode(null);
+    windowRevealAllowedRef.current = true;
+    windowRevealFocusRef.current = true;
     void applyHomeWindowProfile();
     revealCurrentWindow();
   }, [
@@ -2929,7 +3121,7 @@ function App() {
   const openFile = useCallback(async () => {
     try {
       const paths = await invoke<string[]>("open_files_dialog");
-      const playablePaths = uniquePaths(paths).filter((path) => mediaKind(path) !== "unknown");
+      const playablePaths = uniquePlayablePaths(paths);
       if (playablePaths.length === 0) {
         return;
       }
@@ -3015,6 +3207,29 @@ function App() {
     setControlActivity((value) => value + 1);
   }, [shelfMode, showToast, updateInstallLocked]);
 
+  useEffect(() => {
+    if (settings.autoQueueFolder) {
+      if (
+        currentPath &&
+        queueSourceRef.current !== "manual" &&
+        queueSourceRef.current !== "auto-folder"
+      ) {
+        void applyFolderQueueForPath(currentPath).catch(() => undefined);
+      }
+      return;
+    }
+
+    if (queueSourceRef.current !== "auto-folder") {
+      return;
+    }
+
+    queueSourceRef.current = "single";
+    setQueue(clearQueueKeepingCurrent(currentPath));
+    if (shelfMode === "queue") {
+      setShelfMode(null);
+    }
+  }, [applyFolderQueueForPath, currentPath, settings.autoQueueFolder, shelfMode]);
+
   const addFilesToQueue = useCallback(async () => {
     if (!supportsQueue) {
       showToast("Queue is not used for this file type.", "info");
@@ -3031,13 +3246,35 @@ function App() {
     }
   }, [appendToQueue, showToast, supportsQueue]);
 
+  const clearCurrentQueue = useCallback(() => {
+    queueSourceRef.current = "single";
+    setQueue(clearQueueKeepingCurrent(currentPath));
+    showToast("Queue cleared.", "info");
+  }, [currentPath, showToast]);
+
+  const moveQueuedItem = useCallback((index: number, direction: -1 | 1) => {
+    queueSourceRef.current = "manual";
+    setQueue((current) => moveQueueItem(current, index, direction));
+  }, []);
+
+  const removeQueuedItem = useCallback(
+    (index: number) => {
+      queueSourceRef.current = "manual";
+      setQueue((current) => removeQueueItem(current, index, currentPath));
+    },
+    [currentPath],
+  );
+
   const playQueueIndex = useCallback(
-    async (index: number, options: { focusWindow?: boolean } = {}) => {
+    async (index: number, options: { focusWindow?: boolean; transition?: PlaybackTransitionKind } = {}) => {
       if (index < 0 || index >= queue.length) {
         return;
       }
 
-      await playPath(queue[index], { focusWindow: options.focusWindow });
+      await playPath(queue[index], {
+        focusWindow: options.focusWindow,
+        transition: options.transition ?? "internal-queue",
+      });
     },
     [playPath, queue],
   );
@@ -3063,9 +3300,12 @@ function App() {
     [libraryFolder?.items, loadLibraryFolder, playQueue],
   );
 
-  const playNextQueueItem = useCallback(async (options: { focusWindow?: boolean } = {}) => {
+  const playNextQueueItem = useCallback(async (options: { focusWindow?: boolean; transition?: PlaybackTransitionKind } = {}) => {
     if (hasNextQueueItem) {
-      await playQueueIndex(queueIndex + 1, options);
+      await playQueueIndex(queueIndex + 1, {
+        ...options,
+        transition: options.transition ?? "internal-queue",
+      });
       return;
     }
 
@@ -3162,11 +3402,13 @@ function App() {
           commitPlaybackPosition(0, true);
         }
         setSourceUrl(convertFileSrc(remuxed.path));
-        scheduleWindowRevealFallback(path, loadIdRef.current, 1400, windowRevealFocusRef.current);
+        if (windowRevealAllowedRef.current) {
+          scheduleWindowRevealFallback(path, loadIdRef.current, 1400, windowRevealFocusRef.current);
+        }
         showToast("Media remuxed without re-encoding.", "success");
       } catch (fallbackError) {
         remuxFallbackRef.current = { path, status: "done" };
-        revealCurrentWindow(windowRevealFocusRef.current);
+        revealPlaybackWindow();
         showToast(
           `This media file is recognized, but native playback cannot open it yet. FFmpeg remux failed: ${compactError(
             fallbackError,
@@ -3181,7 +3423,7 @@ function App() {
       commitPlaybackPosition,
       currentPath,
       resumeController,
-      revealCurrentWindow,
+      revealPlaybackWindow,
       scheduleWindowRevealFallback,
       settings.fallbackEngine,
       showToast,
@@ -3243,15 +3485,15 @@ function App() {
       }
 
       if (await tryGstreamerProbe()) {
-        revealCurrentWindow();
+        revealPlaybackWindow();
         return true;
       }
 
-      revealCurrentWindow();
+      revealPlaybackWindow();
       showToast(describePlaybackProblem(error, media, currentPath), "error");
       return true;
     },
-    [currentPath, revealCurrentWindow, showToast, tryGstreamerProbe, tryRemuxFallback],
+    [currentPath, revealPlaybackWindow, showToast, tryGstreamerProbe, tryRemuxFallback],
   );
 
   const isActiveMediaElement = useCallback(
@@ -3316,7 +3558,7 @@ function App() {
 
   const playPreviousQueueItem = useCallback(async () => {
     if (hasPreviousQueueItem) {
-      await playQueueIndex(queueIndex - 1);
+      await playQueueIndex(queueIndex - 1, { transition: "internal-queue" });
       return;
     }
 
@@ -3387,9 +3629,47 @@ function App() {
     [runCommand, showToast, speed, toggleFullscreen, volume],
   );
 
+  useEffect(() => {
+    const previousEngine = fallbackEngineRef.current;
+    if (previousEngine === settings.fallbackEngine) {
+      return;
+    }
+
+    fallbackEngineRef.current = settings.fallbackEngine;
+    if (settings.fallbackEngine === "embedded-mpv") {
+      embeddedMpvBypassPathRef.current = null;
+      embeddedMpvHealthFallbackPathRef.current = null;
+    }
+    if (!currentPath || !isVideo) {
+      return;
+    }
+
+    const embeddedEngineChanged =
+      previousEngine === "embedded-mpv" || settings.fallbackEngine === "embedded-mpv";
+    if (!embeddedEngineChanged) {
+      return;
+    }
+
+    recentOpenRequestRef.current = null;
+    void playPath(currentPath, {
+      focusWindow: false,
+      revealWindow: false,
+      skipTextGuard: true,
+      transition: "internal-queue",
+    }).catch(() => undefined);
+  }, [currentPath, isVideo, playPath, settings.fallbackEngine]);
+
   const patchSettings = useCallback((patch: Partial<PlayerSettings>) => {
     setSettings((current) => updateSettings(current, patch));
   }, []);
+
+  const writingPresetActive = settings.textWritingMode;
+
+  const applyWritingPreset = useCallback(() => {
+    patchSettings({
+      textWritingMode: !writingPresetActive,
+    });
+  }, [patchSettings, writingPresetActive]);
 
   const toggleMiniPlayer = useCallback(() => {
     if (!supportsMiniPlayer) {
@@ -4316,28 +4596,52 @@ function App() {
 
   useEffect(() => {
     let disposed = false;
+    let retryTimer: number | null = null;
+    startupFileAttemptRef.current = 0;
 
-    invoke<string[]>("take_startup_files")
-      .then((paths) => {
-        if (disposed) {
-          return;
-        }
-        if (paths.length > 0) {
-          void playQueue(paths).finally(() => {
-            if (!disposed) {
-              setStartupFilesSettled(true);
-            }
-          });
-          return;
-        }
+    const finishStartup = () => {
+      if (!disposed) {
         setStartupFilesSettled(true);
-      })
-      .catch(() => {
-        if (!disposed) {
-          setStartupFilesSettled(true);
-          revealCurrentWindow();
-        }
-      });
+      }
+    };
+
+    const loadStartupFiles = () => {
+      startupFileAttemptRef.current += 1;
+      const attempt = startupFileAttemptRef.current;
+      invoke<string[]>("take_startup_files")
+        .then((paths) => {
+          if (disposed) {
+            return;
+          }
+          if (paths.length > 0) {
+            void playQueue(paths, 0, { transition: "open-with" }).finally(() => {
+              finishStartup();
+            });
+            return;
+          }
+          if (windowLabel !== "main" && attempt < startupFileRetryCount) {
+            retryTimer = window.setTimeout(loadStartupFiles, startupFileRetryDelayMs);
+            return;
+          }
+          finishStartup();
+        })
+        .catch(() => {
+          if (
+            !disposed &&
+            windowLabel !== "main" &&
+            attempt < startupFileRetryCount
+          ) {
+            retryTimer = window.setTimeout(loadStartupFiles, startupFileRetryDelayMs);
+            return;
+          }
+          if (!disposed) {
+            setStartupFilesSettled(true);
+            revealCurrentWindow();
+          }
+        });
+    };
+
+    loadStartupFiles();
 
     const unlisten = listen<MediaOpenRequest>("media-open-request", (event) => {
       const { targetLabel, files } = event.payload;
@@ -4350,14 +4654,28 @@ function App() {
       }).catch(() => undefined);
 
       if (!accepted || files.length === 0) {
+        if (disposed) {
+          return;
+        }
+        if (windowLabel === "main") {
+          setStartupFilesSettled(true);
+        }
         return;
       }
 
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+      }
+      setStartupFilesSettled(true);
       void handleIncomingOpenRequest(files);
     });
 
     return () => {
       disposed = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
       void unlisten.then((dispose) => dispose());
     };
   }, [handleIncomingOpenRequest, playQueue, revealCurrentWindow, windowLabel]);
@@ -4534,6 +4852,54 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
+    let unlistenResize: (() => void) | undefined;
+    let unlistenFocus: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+
+    const syncMaximized = () => {
+      void appWindow
+        .isMaximized()
+        .then((maximized) => {
+          if (!disposed) {
+            setIsWindowMaximized(maximized);
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    syncMaximized();
+
+    void appWindow
+      .onResized(() => syncMaximized())
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        unlistenResize = unlisten;
+      })
+      .catch(() => undefined);
+
+    void appWindow
+      .onFocusChanged(() => syncMaximized())
+      .then((unlisten) => {
+        if (disposed) {
+          unlisten();
+          return;
+        }
+        unlistenFocus = unlisten;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unlistenResize?.();
+      unlistenFocus?.();
+    };
+  }, []);
+
+  useEffect(() => {
     const media = mediaRef.current;
     if (!media) {
       return;
@@ -4654,7 +5020,7 @@ function App() {
       startupResumeSettled = true;
       clearStartupResume();
       setOpeningMedia((current) => (current?.loadId === loadId ? null : current));
-      revealCurrentWindow();
+      revealPlaybackWindow();
       void attemptPlay();
     };
 
@@ -4726,7 +5092,7 @@ function App() {
         setOpeningMedia((current) => (current?.loadId === loadId ? null : current));
       }
 
-      revealCurrentWindow();
+      revealPlaybackWindow();
       void attemptPlay();
     };
 
@@ -4764,7 +5130,7 @@ function App() {
         }
       }
     };
-  }, [handlePlaybackProblem, isStaticViewer, resumeController, revealCurrentWindow, sourceUrl, showToast]);
+  }, [handlePlaybackProblem, isStaticViewer, resumeController, revealPlaybackWindow, sourceUrl, showToast]);
 
   useEffect(() => {
     volumeRef.current = volume;
@@ -4961,6 +5327,8 @@ function App() {
     });
 
     if (player && snapshot && loopRange.start !== null && loopRange.end !== null) {
+      windowRevealAllowedRef.current = false;
+      windowRevealFocusRef.current = false;
       tracePlaybackFocus("native-loop-repeat", {
         duration: snapshot.duration,
         target: loopRange.start,
@@ -4989,6 +5357,8 @@ function App() {
     }
 
     if (player && snapshot && settings.repeatCurrent) {
+      windowRevealAllowedRef.current = false;
+      windowRevealFocusRef.current = false;
       tracePlaybackFocus("native-repeat-current", {
         duration: snapshot.duration,
         target: 0,
@@ -5023,7 +5393,7 @@ function App() {
     setPaused(true);
     if (settings.autoplayNext && hasNextQueueItem) {
       tracePlaybackFocus("native-autoplay-next", { focusWindow: false });
-      void playNextQueueItem({ focusWindow: false });
+      void playNextQueueItem({ focusWindow: false, transition: "internal-autoplay" });
     }
   }, [
     commitPlaybackPosition,
@@ -5063,6 +5433,8 @@ function App() {
               title: currentPath ? fileName(currentPath) : "-",
             });
             if (settings.repeatCurrent && currentPath) {
+              windowRevealAllowedRef.current = false;
+              windowRevealFocusRef.current = false;
               const repeatPath = currentPath;
               const repeatLoadId = loadIdRef.current;
               const isRepeatStillCurrent = () =>
@@ -5140,6 +5512,59 @@ function App() {
           if (!session.active) {
             return;
           }
+          const startedAt = session.startedAt ?? Date.now();
+          const startupAgeMs = Date.now() - startedAt;
+          const startupWindowActive = startupAgeMs > 2800 && startupAgeMs < 10000;
+          const playbackProgressing = session.position > 0.25;
+          const embeddedStartupUnhealthy =
+            Boolean(currentPath) &&
+            startupWindowActive &&
+            !session.paused &&
+            !playbackProgressing &&
+            embeddedMpvHealthFallbackPathRef.current !== currentPath;
+
+          if (session.error || embeddedStartupUnhealthy) {
+            const fallbackPath = currentPath;
+            if (!fallbackPath) {
+              return;
+            }
+            const reason = session.error ? "session-error" : "startup-no-progress";
+            embeddedMpvHealthFallbackPathRef.current = fallbackPath;
+            embeddedMpvBypassPathRef.current = fallbackPath;
+            tracePlaybackFocus("libmpv-health-fallback", {
+              ageMs: Math.round(startupAgeMs),
+              duration: session.duration,
+              error: session.error ?? "-",
+              position: session.position,
+              reason,
+              ready: session.ready,
+              title: fileName(fallbackPath),
+            });
+            showToast("Embedded MPV did not produce playback. Using native playback instead.", "info");
+            void stopTrackedLibMpvRender(true)
+              .then(() => {
+                if (disposed || activePlaybackPathRef.current !== fallbackPath) {
+                  return;
+                }
+                recentOpenRequestRef.current = null;
+                void playPath(fallbackPath, {
+                  focusWindow: false,
+                  revealWindow: false,
+                  skipTextGuard: true,
+                  transition: "internal-queue",
+                }).catch((error) => {
+                  if (!disposed) {
+                    showToast(compactError(error), "error");
+                  }
+                });
+              })
+              .catch((error) => {
+                if (!disposed) {
+                  showToast(compactError(error), "error");
+                }
+              });
+            return;
+          }
 
           setPaused(session.paused);
           setDuration(session.duration || 0);
@@ -5180,6 +5605,8 @@ function App() {
             loopRange.end !== null &&
             session.position >= loopRange.end - 0.03
           ) {
+            windowRevealAllowedRef.current = false;
+            windowRevealFocusRef.current = false;
             tracePlaybackFocus("libmpv-loop-repeat", {
               duration: session.duration,
               target: loopRange.start,
@@ -5235,11 +5662,13 @@ function App() {
     loopRange.start,
     maybeSavePlaybackProgress,
     onEnded,
+    playPath,
     scheduleVideoWindowAspectResize,
     seekLibMpvCore,
     setLibMpvCorePaused,
     settings.repeatCurrent,
     showToast,
+    stopTrackedLibMpvRender,
     startTrackedLibMpvRender,
     tracePlaybackFocus,
   ]);
@@ -5450,43 +5879,63 @@ function App() {
         }
       }
 
+      if (!event.ctrlKey && !event.altKey && !event.metaKey && !toolsOpen && !shelfMode) {
+        const lowerKey = event.key.toLowerCase();
+        if (lowerKey === "q" && canOpenShelf(mediaCapabilities, "queue")) {
+          event.preventDefault();
+          revealControls();
+          toggleShelfMode("queue");
+          return;
+        }
+        if (lowerKey === "i" && canOpenShelf(mediaCapabilities, "info")) {
+          event.preventDefault();
+          revealControls();
+          toggleShelfMode("info");
+          return;
+        }
+      }
+
       const command = keyboardCommand(event, settings);
       if (!command) {
         return;
       }
+      const routedCommand =
+        typeof command === "object" && command.type === "frameStep"
+          ? { ...command, seconds: frameStepSeconds }
+          : command;
 
       event.preventDefault();
       revealControls();
-      if (command === "open") {
+      if (routedCommand === "open") {
         void openFile();
-      } else if (command === "fullscreen") {
+      } else if (routedCommand === "fullscreen") {
         void send("fullscreen");
-      } else if (command === "mark") {
+      } else if (routedCommand === "mark") {
         if (supportsMoments) {
           addCurrentMoment();
         }
-      } else if (command === "loop") {
+      } else if (routedCommand === "loop") {
         if (supportsLoopPoints) {
           setLoopPoint();
         }
-      } else if (command === "clearLoop") {
+      } else if (routedCommand === "clearLoop") {
         if (supportsLoopPoints) {
           clearLoop();
         }
-      } else if (command === "captions") {
+      } else if (routedCommand === "captions") {
         if (isVideo) {
           toggleSubtitles();
         }
-      } else if (isStaticViewer && supportsQueue && command.type === "seekBy") {
-        if (command.seconds < 0) {
+      } else if (isStaticViewer && supportsQueue && routedCommand.type === "seekBy") {
+        if (routedCommand.seconds < 0) {
           void playPreviousQueueItem();
         } else {
           void playNextQueueItem();
         }
-      } else if (isStaticViewer && command.type === "togglePause") {
+      } else if (isStaticViewer && routedCommand.type === "togglePause") {
         return;
       } else {
-        void runCommand(command);
+        void runCommand(routedCommand);
       }
     };
 
@@ -5499,6 +5948,7 @@ function App() {
     documentPageCount,
     documentView.page,
     focusTextFind,
+    frameStepSeconds,
     goToTextLine,
     openFile,
     isDocument,
@@ -5507,6 +5957,7 @@ function App() {
     isVideo,
     isText,
     isStaticViewer,
+    mediaCapabilities,
     playNextQueueItem,
     playPreviousQueueItem,
     printCurrentDocument,
@@ -5530,6 +5981,7 @@ function App() {
     undoTextEdit,
     toggleImageActualSize,
     toggleSubtitles,
+    toggleShelfMode,
     toolsOpen,
     shelfMode,
     zoomImage,
@@ -5845,6 +6297,10 @@ function App() {
     });
   }
 
+  const videoQueueOverlayOpen =
+    isVideo && !miniPlayerActive && shelfMode === "queue" && canOpenShelf(mediaCapabilities, "queue");
+  const mediaShelvesMode = videoQueueOverlayOpen ? null : shelfMode;
+
   return (
     <main
       className={`app-shell ${hasMedia ? "with-media" : "without-media"}`}
@@ -5856,6 +6312,7 @@ function App() {
         canGoHome={hasMedia}
         miniPlayer={miniPlayerActive}
         onGoHome={() => void openHome()}
+        onPointerActivity={registerPlayerPointerActivity}
         onRequestClose={confirmWindowClose}
         onToggleMiniPlayer={toggleMiniPlayer}
       />
@@ -5960,90 +6417,74 @@ function App() {
           ) : null}
 
           {isText && sourceUrl ? (
-            <>
-              <Suspense
-                fallback={
-                  <div className="text-viewport">
-                    <div className="text-status">Loading editor...</div>
-                  </div>
-                }
-              >
-                <TextEditorSurface
-                  activeSearchIndex={boundedTextActiveMatchIndex}
-                  autoCloseBrackets={settings.textAutoCloseBrackets}
-                  enableIntegratedTerminal={settings.enableIntegratedTerminal}
-                  fontFamily={settings.textFontFamily}
-                  fontSize={settings.textFontSize}
-                  lineNumbersVisible={settings.textLineNumbers}
-                  path={currentPath}
-                  searchMatches={textFindMatches}
-                  syntaxHighlightingEnabled={settings.textSyntaxHighlighting}
-                  tabSize={settings.textTabSize}
-                  title={currentTitle}
-                  view={textView}
-                  onChange={updateTextDraft}
-                  editorRef={textEditorRef}
-                  wordWrap={textWordWrap}
-                />
-              </Suspense>
-              <TextTools
-                activeShelf={shelfMode === "info" || shelfMode === "library" || shelfMode === "recent" || shelfMode === "settings" ? shelfMode : null}
-                caseSensitive={textCaseSensitive}
-                dirty={canSaveText}
-                findInputRef={textFindInputRef}
-                findMatchCount={textFindMatchCount}
-                findPositionLabel={textFindPositionLabel}
-                findQuery={textFindQuery}
-                isFullscreen={isFullscreen}
-                onFind={findTextMatch}
-                onFindQueryChange={(value) => {
-                  setTextFindQuery(value);
-                  setTextActiveMatchIndex(-1);
-                }}
-                onGoToLine={goToTextLine}
-                onOpenInfo={() => toggleShelfMode("info")}
-                onOpenLibrary={() => void loadLibraryFolder()}
-                onOpenRecent={() => toggleShelfMode("recent")}
-                onOpenSettings={() => toggleShelfMode("settings")}
-                onReplaceAll={replaceAllTextMatches}
-                onReplaceCurrent={replaceCurrentTextMatch}
-                onReplaceOpenChange={(open) => {
-                  setTextReplaceOpen(open);
-                  window.setTimeout(() => {
-                    if (open) {
-                      textReplaceInputRef.current?.focus();
-                      textReplaceInputRef.current?.select();
-                    }
-                  }, 0);
-                }}
-                onReplaceQueryChange={setTextReplaceQuery}
-                onRevert={revertCurrentText}
-                onRedo={redoTextEdit}
-                onSave={() => void saveCurrentText()}
-                onSaveAs={() => void saveCurrentTextAs()}
-                onToggleFullscreen={() => send("fullscreen")}
-                onToggleTools={() => {
-                  setToolsOpen((open) => !open);
-                  setShelfMode(null);
-                }}
-                onToggleWordWrap={() => patchSettings({ textWordWrap: !settings.textWordWrap })}
-                onUndo={undoTextEdit}
-                onUpdateCaseSensitive={(value) => {
-                  setTextCaseSensitive(value);
-                  setTextActiveMatchIndex(-1);
-                }}
-                onUpdateWholeWord={(value) => {
-                  setTextWholeWord(value);
-                  setTextActiveMatchIndex(-1);
-                }}
-                replaceInputRef={textReplaceInputRef}
-                replaceOpen={textReplaceOpen}
-                replaceQuery={textReplaceQuery}
-                toolsOpen={toolsOpen}
-                wholeWord={textWholeWord}
-                wordWrap={textWordWrap}
-              />
-            </>
+            <TextWorkspace
+              activeSearchIndex={boundedTextActiveMatchIndex}
+              activeShelf={shelfMode}
+              caseSensitive={textCaseSensitive}
+              currentPath={currentPath}
+              currentTitle={currentTitle}
+              editorRef={textEditorRef}
+              findInputRef={textFindInputRef}
+              findMatchCount={textFindMatchCount}
+              findPositionLabel={textFindPositionLabel}
+              findQuery={textFindQuery}
+              isFullscreen={isFullscreen}
+              onChange={updateTextDraft}
+              onApplyWritingPreset={applyWritingPreset}
+              onFind={findTextMatch}
+              onFindQueryChange={(value) => {
+                setTextFindQuery(value);
+                setTextActiveMatchIndex(-1);
+              }}
+              onGoToLine={goToTextLine}
+              onOpenInfo={() => toggleShelfMode("info")}
+              onOpenLibrary={() => void loadLibraryFolder()}
+              onOpenRecent={() => toggleShelfMode("recent")}
+              onOpenSettings={() => toggleShelfMode("settings")}
+              onReplaceAll={replaceAllTextMatches}
+              onReplaceCurrent={replaceCurrentTextMatch}
+              onReplaceOpenChange={(open) => {
+                setTextReplaceOpen(open);
+                window.setTimeout(() => {
+                  if (open) {
+                    textReplaceInputRef.current?.focus();
+                    textReplaceInputRef.current?.select();
+                  }
+                }, 0);
+              }}
+              onReplaceQueryChange={setTextReplaceQuery}
+              onRevert={revertCurrentText}
+              onRedo={redoTextEdit}
+              onSave={() => void saveCurrentText()}
+              onSaveAs={() => void saveCurrentTextAs()}
+              onToggleFullscreen={() => send("fullscreen")}
+              onToggleTools={() => {
+                setToolsOpen((open) => !open);
+                setShelfMode(null);
+              }}
+              onToggleWordWrap={() => patchSettings({ textWordWrap: !settings.textWordWrap })}
+              onUndo={undoTextEdit}
+              onUpdateCaseSensitive={(value) => {
+                setTextCaseSensitive(value);
+                setTextActiveMatchIndex(-1);
+              }}
+              onUpdateWholeWord={(value) => {
+                setTextWholeWord(value);
+                setTextActiveMatchIndex(-1);
+              }}
+              replaceInputRef={textReplaceInputRef}
+              replaceOpen={textReplaceOpen}
+              replaceQuery={textReplaceQuery}
+              saveReady={canSaveText}
+              searchMatches={textFindMatches}
+              settings={settings}
+              toolsOpen={toolsOpen}
+              view={textView}
+              wholeWord={textWholeWord}
+              writingMode={settings.textWritingMode}
+              writingPresetActive={writingPresetActive}
+              wordWrap={textWordWrap}
+            />
           ) : null}
 
           {isVideo ? (
@@ -6150,7 +6591,7 @@ function App() {
               onError={(event) => {
                 if (isActiveMediaElement(event.currentTarget)) {
                   setOpeningMedia(null);
-                  revealCurrentWindow(windowRevealFocusRef.current);
+                  revealPlaybackWindow();
                   void handlePlaybackProblem(undefined, event.currentTarget);
                 }
               }}
@@ -6350,6 +6791,22 @@ function App() {
             zoomImage={zoomImage}
           />
         ) : null}
+        {videoQueueOverlayOpen ? (
+          <section className="video-queue-overlay media-shelf queue-shelf" aria-label="Media queue">
+            <QueueShelf
+              currentPath={currentPath}
+              onAddFilesToQueue={() => void addFilesToQueue()}
+              onClearQueue={clearCurrentQueue}
+              onClose={closeShelf}
+              onMoveQueueItem={moveQueuedItem}
+              onPlayQueueIndex={(index) => void playQueueIndex(index)}
+              onRemoveQueueItem={removeQueuedItem}
+              queue={queue}
+              queueCount={queueCount}
+              queueIndex={queueIndex}
+            />
+          </section>
+        ) : null}
         {shelfMode === "settings" ? (
           <SettingsPanel
             activeTab={activeSettingsTab}
@@ -6357,6 +6814,7 @@ function App() {
             currentPath={currentPath}
             fallbackStatusLabel={fallbackStatusLabel}
             gstreamerAvailable={Boolean(gstreamerBackend?.available)}
+            libMpvAvailable={Boolean(libMpvBackend?.available)}
             isAudio={isAudio}
             isDocument={isDocument}
             isImage={isImage}
@@ -6406,10 +6864,7 @@ function App() {
         onAddFilesToQueue={() => void addFilesToQueue()}
         onCancelTrimExport={cancelTrimExport}
         onChooseLibraryFolder={() => void chooseLibraryFolder()}
-        onClearQueue={() => {
-          setQueue(currentPath ? [currentPath] : []);
-          showToast("Queue cleared.", "info");
-        }}
+        onClearQueue={clearCurrentQueue}
         onClearRecent={() => {
           setRecent(clearRecent());
           showToast("Recent media cleared.", "info");
@@ -6433,10 +6888,12 @@ function App() {
         onOpenLibraryItem={(item) => void openLibraryItem(item)}
         onOpenTrimResult={openTrimResult}
         onOpenSubtitle={() => void openSubtitle()}
+        onMoveQueueItem={moveQueuedItem}
         onPlayQueueIndex={(index) => void playQueueIndex(index)}
         onPlayRecent={(path) => void playQueue([path])}
         onPreviewTrimRange={previewTrimRange}
         onRefreshInspection={() => currentPath && void inspectMedia(currentPath, loadIdRef.current)}
+        onRemoveQueueItem={removeQueuedItem}
         onSelectDocumentPage={selectDocumentPage}
         onSelectNativeAudioTrack={selectNativeAudioTrack}
         onSetTrimEndFromCurrent={setTrimEndFromCurrent}
@@ -6450,7 +6907,7 @@ function App() {
         queueCount={queueCount}
         queueIndex={queueIndex}
         recent={recent}
-        shelfMode={shelfMode}
+        shelfMode={mediaShelvesMode}
         streamInspectionItems={streamInspectionItems}
         subtitleInspectionItems={subtitleInspectionItems}
         subtitleTrackLabel={subtitleTrack?.label ?? null}
