@@ -11,19 +11,19 @@
   ],
   "banner": "always",
   "createdAt": "2026-11-23T10:09:53.997Z",
-  "stampedAt": "2026-11-23T10:24:41.931Z",
-  "fileCount": 183,
-  "merkleRoot": "f69e6198657d620468fd095a85e5d7fb57a0e0d32343bd34d71b86f2b4c39d7f",
+  "stampedAt": "2026-11-23T10:41:21.302Z",
+  "fileCount": 184,
+  "merkleRoot": "faa4ea00b1ea4c2806e568b2b33c6eaa2f887d8ab1259e0c36d4e839c909816b",
   "seal": [
-    "≋≋≋~~≋~≈≋  ≋ ~≋",
-    "≈≈ ≋≋≈~ ≈≋≈~ ≋~",
-    "~≋ ~≋ ~≋≋≈≋  ~≋"
+    "≋≈≈~~  ≈~≈  ~≈ ",
+    "≋~≈≋  ≈≈≋ ~~≋≈~",
+    "≋  ≋  ≈≋~≈~~≈ ~"
   ],
   "chain": {
-    "n": 3,
-    "prev": "4bb9e2d27f2867f392e62bb337460fa5228d6a395240572d1ea9627e6b472bec"
+    "n": 4,
+    "prev": "94a1fe78e0232673308540d4ed733b139c6e0311cc92a912075c91b296566b5b"
   },
   "pubkey": "WtvJ6JWDYV-jVQNWX8qjezb3cU9k5s0pajiDzT8TFWA",
   "keyFingerprint": "LK4MG6RSBKIM35",
-  "sig": "jByOP9Muzk9f7Adv7VvncEhDT3C0voyXb8-iyZJf_cbEgrZH8SpF24QYqkqHvZEGtn6VNWU-zc_1dP9I0eYkCQ"
+  "sig": "jTG61mhDuqHGHrMedDEwbsg3ndc6xY684YjA_AXeM-1zfA_RG1UCVVCQtokIDjN-u0F81QKESK4efaVNaebRAg"
 }

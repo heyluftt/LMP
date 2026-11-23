@@ -82,3 +82,7 @@ npm.cmd run verify:windows
 - [Changelog](CHANGELOG.md)
 
 Release installers, packaged ZIPs, build output, smoke media, caches, and local helper binaries are intentionally not committed. Packaged installers belong in GitHub Releases.
+
+## License
+
+LMP is released under the [MIT License](LICENSE). The FFmpeg and FFprobe binaries bundled with the installer are separate programs under their own license; see `src-tauri/binaries/tools/LICENSE-FFmpeg.txt`.

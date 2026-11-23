@@ -3,6 +3,7 @@ name = "lmp-one"
 version = "0.3.0"
 description = "A smooth native-first desktop media player"
 authors = ["heyluftt"]
+license = "MIT"
 edition = "2021"
 
 [[bin]]
