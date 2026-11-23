@@ -1,0 +1,11 @@
+export const playbackPositionRenderIntervalMs = 220;
+export const playbackPositionJumpThresholdSeconds = 0.45;
+export const playbackProgressAttemptIntervalMs = 750;
+export const startupDiagnosticsDelayMs = 450;
+export const visiblePreparationDelayMs = 1200;
+export const deferredMediaDetailsDelayMs = 180;
+export const homeSourceUrl = "lmp://home";
+export const newTextSourceUrl = "lmp://new-text";
+export const playbackDebugLoggingEnabled = import.meta.env.DEV;
+export const startupFileRetryDelayMs = 80;
+export const startupFileRetryCount = 6;

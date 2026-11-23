@@ -1,0 +1,29 @@
+{
+  "luftmark": "1.2.0",
+  "projectId": "01a207e2-314d-7ddb-bf82-8ce00dda2318",
+  "name": "LMP",
+  "author": "Luft",
+  "tag": "LMEMBNUOB3XYAYRBRU",
+  "seed": "0x4C554654",
+  "stacks": [
+    "web",
+    "tauri"
+  ],
+  "banner": "always",
+  "createdAt": "2026-11-23T10:09:53.997Z",
+  "stampedAt": "2026-11-23T10:24:41.931Z",
+  "fileCount": 183,
+  "merkleRoot": "f69e6198657d620468fd095a85e5d7fb57a0e0d32343bd34d71b86f2b4c39d7f",
+  "seal": [
+    "≋≋≋~~≋~≈≋  ≋ ~≋",
+    "≈≈ ≋≋≈~ ≈≋≈~ ≋~",
+    "~≋ ~≋ ~≋≋≈≋  ~≋"
+  ],
+  "chain": {
+    "n": 3,
+    "prev": "4bb9e2d27f2867f392e62bb337460fa5228d6a395240572d1ea9627e6b472bec"
+  },
+  "pubkey": "WtvJ6JWDYV-jVQNWX8qjezb3cU9k5s0pajiDzT8TFWA",
+  "keyFingerprint": "LK4MG6RSBKIM35",
+  "sig": "jByOP9Muzk9f7Adv7VvncEhDT3C0voyXb8-iyZJf_cbEgrZH8SpF24QYqkqHvZEGtn6VNWU-zc_1dP9I0eYkCQ"
+}
